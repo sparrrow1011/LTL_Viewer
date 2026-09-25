@@ -243,10 +243,15 @@ const HANDLERS = {
   // Usage roster: force a report now (Settings button).
   usageReport: () => usage.report("manual", { force: true }),
   // Usage roster: all installs (both extensions) from the SharePoint list.
-  usageRoster: async () => ({
-    rows: await usage.roster(),
-    listUrl: `${Config.SP_ORIGIN}/sites/AmazonFreightOperations/Lists/Extension_Installs`,
-  }),
+  // Admin-only (alias listed in control.json "admins").
+  usageRoster: async () => {
+    const st = await control.status();
+    if (!st.admin) throw new Error(`The installs roster is admin-only (alias ${st.alias || "unknown"} is not in control.json "admins").`);
+    return {
+      rows: await usage.roster(),
+      listUrl: `${Config.SP_ORIGIN}/sites/AmazonFreightOperations/Lists/Extension_Installs`,
+    };
+  },
 
   clearAlertLog: async () => {
     await store.patchState({ alertLog: {} });

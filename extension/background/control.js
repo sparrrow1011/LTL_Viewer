@@ -111,7 +111,13 @@ export function evaluate(doc, { alias, installId, version }) {
   if (doc.enabled === false && !(user && user.enabled === true) && !(inst && inst.enabled === true)) {
     return { allowed: false, reason: "global", message: doc.message || "This add-on is currently disabled for everyone." };
   }
-  return { ...ALLOW, notice: doc.notice || "" };
+  return { ...ALLOW, notice: doc.notice || "", admin: isAdmin(doc, alias) };
+}
+
+/** Admin = alias listed in control.json "admins" (lowercase). No alias → false. */
+export function isAdmin(doc, alias) {
+  if (!doc || !alias || !Array.isArray(doc.admins)) return false;
+  return doc.admins.map((a) => String(a).trim().toLowerCase()).includes(String(alias).trim().toLowerCase());
 }
 
 /**
@@ -168,7 +174,7 @@ export async function assertAllowed(what = "run") {
   throw err;
 }
 
-/** For the UI: identity + current verdict + last fetch status. */
+/** For the UI: identity + current verdict + last fetch status + admin flag. */
 export async function status() {
   const s = await getStored();
   const id = await identity();
@@ -176,6 +182,7 @@ export async function status() {
     ...id,
     url: cfg.url,
     verdict: s.verdict || ALLOW,
+    admin: isAdmin(s.doc, id.alias),
     fetchedAt: s.fetchedAt,
     error: s.error,
     doc: s.doc,

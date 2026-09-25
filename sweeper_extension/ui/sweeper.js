@@ -943,6 +943,10 @@ async function renderControl(refresh = false) {
   const when = s.fetchedAt ? `checked ${fmtTime(s.fetchedAt)}` : "not checked yet";
   const err = s.error ? ` · last fetch error: ${esc(s.error)}` : "";
   const el = $("controlStatus");
+  // Installs tab is admin-only: shown when this alias is in control.json "admins".
+  app.isAdmin = !!s.admin;
+  document.querySelector('.tab[data-tab="roster"]').hidden = !app.isAdmin;
+  if (!app.isAdmin && !$("tab-roster").hidden) showTab("sweep");
   const u = s.usage || {};
   $("usageLine").textContent =
     `First used ${u.firstSeen ? fmtTime(Date.parse(u.firstSeen)) : "—"} · last run ${u.lastRun ? fmtTime(Date.parse(u.lastRun)) : "—"} · ${u.runs || 0} run(s)` +
