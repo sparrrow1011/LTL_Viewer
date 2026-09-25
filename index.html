@@ -70,6 +70,18 @@
   </div>
 </section>
 
+<section id="usersCard" class="card" style="margin:12px 20px 0">
+  <div class="row" style="justify-content:space-between">
+    <h2 style="margin:0">Users &amp; installs <span id="usersMeta" class="hint"></span></h2>
+    <div class="row">
+      <input id="usersSearch" type="text" placeholder="search alias / version / id" style="max-width:260px" />
+      <select id="usersExt" style="max-width:180px"><option value="">both extensions</option><option value="lobby-sweeper">Lobby Sweeper</option><option value="ms-viewer">MS Viewer</option></select>
+    </div>
+  </div>
+  <p class="hint">Mirrored from the <code>Extension_Installs</code> SharePoint list by an admin (Lobby Sweeper → Installs → <em>Publish roster to control page</em>). Live data is in that tab; this copy is as of the publish time.</p>
+  <table><thead><tr><th>Alias</th><th>Extension</th><th>Version</th><th>Last seen</th><th>Last run</th><th>Runs</th><th>Install ID</th><th>State</th><th></th></tr></thead><tbody id="usersBody"><tr><td colspan="9" class="muted">loading…</td></tr></tbody></table>
+</section>
+
 <main id="main"></main>
 
 <template id="tplExt">
@@ -234,6 +246,7 @@
     } else bar.hidden = true;
     $(".f-save", c).disabled = !dirty;
     $(".f-revert", c).disabled = !dirty;
+    if (typeof renderUsers === "function" && roster) renderUsers();
   }
 
   function readForm(ext) {
@@ -328,6 +341,82 @@
     return parts.join(", ") || "no-op";
   }
 
+  // ── users roster (roster.json mirrored from SharePoint) ─────────────────
+  let roster = null;
+  async function loadRoster() {
+    try {
+      const r = await fetch(RAW("roster.json"));
+      if (r.status === 404) { roster = { installs: [] }; $("#usersMeta").textContent = "— not published yet"; renderUsers(); return; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      roster = await r.json();
+      $("#usersMeta").textContent = `— ${roster.count ?? roster.installs.length} install(s), published ${new Date(roster.publishedAt).toLocaleString()}`;
+    } catch (e) {
+      roster = { installs: [] };
+      $("#usersMeta").textContent = `— couldn't load roster (${e.message})`;
+    }
+    renderUsers();
+  }
+  const age = (iso) => {
+    if (!iso) return '<span class="muted">—</span>';
+    const h = (Date.now() - Date.parse(iso)) / 3.6e6;
+    const cls = h < 24 ? "pill-good" : h < 168 ? "pill-warn" : "pill-muted";
+    const t = h < 1 ? `${Math.round(h * 60)} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`;
+    return `<span class="pill ${cls}" title="${esc(new Date(iso).toLocaleString())}">${t} ago</span>`;
+  };
+  function userState(inst) {
+    const s = state[inst.extension]; if (!s) return { txt: "", cls: "pill-muted" };
+    const d = s.doc, u = inst.alias && d.users[inst.alias], i = d.installs[inst.installId];
+    if ((u && u.enabled === false) || (i && i.enabled === false)) return { txt: "disabled", cls: "pill-bad", off: true };
+    if (!d.enabled && !(u && u.enabled === true) && !(i && i.enabled === true)) return { txt: "disabled (global)", cls: "pill-bad" };
+    if (d.minVersion && cmpVer(inst.version || "0", d.minVersion) < 0) return { txt: `blocked: needs ≥ ${d.minVersion}`, cls: "pill-warn" };
+    return { txt: "enabled", cls: "pill-good" };
+  }
+  function renderUsers() {
+    const q = $("#usersSearch").value.trim().toLowerCase(), ext = $("#usersExt").value;
+    const rows = (roster?.installs || [])
+      .filter((r) => (!ext || r.extension === ext) && (!q || [r.alias, r.version, r.installId, r.extension].some((v) => String(v || "").toLowerCase().includes(q))))
+      .sort((a, b) => (Date.parse(b.lastSeen) || 0) - (Date.parse(a.lastSeen) || 0));
+    $("#usersBody").innerHTML = rows.length ? rows.map((r) => {
+      const st = userState(r);
+      const dis = st.off
+        ? `<button type="button" class="btn btn-sm" data-uact="enable" data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}">Re-enable</button>`
+        : `<button type="button" class="btn btn-sm btn-danger" data-uact="disable" data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}">Disable</button>`;
+      return `<tr><td>${r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>'}</td><td>${r.extension === "lobby-sweeper" ? "Lobby Sweeper" : r.extension === "ms-viewer" ? "MS Viewer" : esc(r.extension)}</td><td>${esc(r.version)}</td><td>${age(r.lastSeen)}</td><td>${age(r.lastRun)}</td><td>${esc(r.runs)}</td><td><code>${esc(r.installId)}</code></td><td><span class="pill ${st.cls}">${esc(st.txt)}</span></td><td>${dis}</td></tr>`;
+    }).join("") : '<tr><td colspan="9" class="muted">no installs published yet — open Lobby Sweeper → Installs → Publish roster to control page</td></tr>';
+  }
+  $("#usersSearch").addEventListener("input", renderUsers);
+  $("#usersExt").addEventListener("change", renderUsers);
+  $("#usersBody").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-uact]"); if (!b) return;
+    const s = state[b.dataset.ext]; if (!s) return;
+    const key = b.dataset.alias || null, inst = b.dataset.install;
+    if (b.dataset.uact === "disable") {
+      const msg = prompt(`Message shown to ${key || inst} when they open the extension (optional):`, "");
+      if (msg === null) return;
+      const entry = { enabled: false }; if (msg.trim()) entry.message = msg.trim();
+      if (key) s.doc.users[key] = entry; else s.doc.installs[inst] = entry; // alias preferred; install id when alias unknown
+    } else {
+      if (key) delete s.doc.users[key];
+      delete s.doc.installs[inst];
+    }
+    const ext = EXTS.find((x) => x.slug === b.dataset.ext);
+    render(ext); renderUsers();
+    s.card.scrollIntoView({ behavior: "smooth", block: "start" });
+    banner("warn", `Draft updated for ${ext.name} — scroll down and click <strong>Save to GitHub</strong> to apply.`);
+  });
+
+  // Deep link from the Installs tab: #ext=…&alias=…&install=…
+  function applyHash() {
+    const p = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const slug = p.get("ext"), alias = (p.get("alias") || "").toLowerCase(), inst = p.get("install") || "";
+    if (!slug || !state[slug]) return;
+    const c = state[slug].card;
+    if (alias) $(".f-newuser", c).value = alias; else if (inst) $(".f-newinst", c).value = inst;
+    c.scrollIntoView({ behavior: "smooth", block: "start" });
+    banner("warn", `Pre-filled ${alias ? `alias <code>${esc(alias)}</code>` : `install <code>${esc(inst)}</code>`} on the ${esc(EXTS.find((x) => x.slug === slug).name)} card — click <strong>Disable user</strong> (or install) and then Save.`);
+    history.replaceState(null, "", location.pathname);
+  }
+
   // ── boot ────────────────────────────────────────────────────────────────
   async function loadAll() {
     banner();
@@ -343,6 +432,8 @@
         card.innerHTML = `<h2>${esc(ext.name)}</h2><div class="banner err">${esc(e.message)}</div>`;
       }
     }
+    await loadRoster();
+    applyHash();
   }
   loadAll();
 })();
