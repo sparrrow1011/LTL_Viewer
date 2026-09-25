@@ -1,0 +1,774 @@
+{% extends "base.html" %}
+
+{% block page_title %}Manual Sourcing{% endblock %}
+{% block page_description %}Manage manual sourcing operations and bulk email communications{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+  <!-- Filters Section -->
+
+  <div
+    class="flex-shrink-0 px-6 py-4 bg-slack-bg-light dark:bg-gray-700 border-b border-slack-border dark:border-gray-600">
+    <div class="flex flex-row">
+      <button id="validateBtn" class="px-4 py-2 bg-slack-sidebar-active hover:bg-blue-700 text-white rounded-lg 
+                                     font-medium text-sm transition-colors duration-200 focus:outline-none 
+                                     focus:ring-2 focus:ring-slack-sidebar-active">
+        <i class="fas fa-check-double mr-2"></i>Validate
+      </button>
+      <button id="validateAddressBtn" class="px-4 py-2 bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-lg 
+                                     font-medium text-sm transition-colors duration-200 focus:outline-none 
+                                     focus:ring-2 focus:ring-slack-sidebar-active ml-4">
+        <i class="fas fa-map-marker-alt mr-2"></i>Validate Addresses
+    </div>
+    <div class="flex flex-wrap items-center gap-4">
+      <div class="flex items-center gap-2">
+        <i class="fas fa-filter text-slack-text-light dark:text-gray-400"></i>
+        <span class="text-sm font-medium text-slack-text dark:text-white">Filters:</span>
+      </div>
+      <input type="date" id="startDate" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+      <input type="date" id="endDate" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+      <select id="country" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 text-sm">
+        <option value="">All Countries</option>
+      </select>
+      <select id="executionStatus" class="hidden px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                         border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                         focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+        <option value="">All Statuses</option>
+      </select>
+      <select id="origNode" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-sm">
+        <option value="">All Origin Nodes</option>
+      </select>
+
+      <select id="destNode" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-sm">
+        <option value="">All Destination Nodes</option>
+      </select>
+
+
+      <select id="shipper" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                         border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                         focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+        <option value="">All Shippers</option>
+      </select>
+
+      <button id="applyFilter" class="px-4 py-2 bg-slack-sidebar-active hover:bg-blue-700 text-white rounded-lg 
+                                     font-medium text-sm transition-colors duration-200 focus:outline-none 
+                                     focus:ring-2 focus:ring-slack-sidebar-active">
+        <i class="fas fa-search mr-2"></i>Apply Filters
+      </button>
+      <button id="clearFilter" class="px-4 py-2 bg-slack-sidebar-active hover:bg-red-700 text-white rounded-lg 
+                                     font-medium text-sm transition-colors duration-200 focus:outline-none 
+                                     focus:ring-2 focus:ring-slack-sidebar-active">
+        <i class="fas fa-times mr-2"></i>Clear Filters
+      </button>
+      <div class="flex items-center gap-3">
+        <button id="selectAll"
+          class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 
+                                     text-slack-text dark:text-gray-300 rounded-lg font-medium transition-colors text-sm">
+          <i class="fas fa-check-square mr-2"></i>Select All
+        </button>
+        <button id="sendSelectedEML"
+          class="px-4 py-2 bg-slack-green hover:bg-slack-green-light text-white rounded-lg 
+                                        font-medium transition-colors text-sm">
+          <i class="fas fa-envelope mr-2"></i>Send Selected via EML(<span id="selectedCountEML">0</span>)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Table -->
+  <!-- Data Table Area -->
+  <div class="flex-1 overflow-hidden px-6 py-4">
+    <div
+      class="h-full bg-white dark:bg-gray-800 rounded-lg border border-slack-border dark:border-gray-700 flex flex-col">
+      <!-- Table Header -->
+      <div class="flex-shrink-0 px-6 py-4 border-b border-slack-border dark:border-gray-700">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-slack-text dark:text-white">Manual Sourcing Data</h3>
+          <div class="flex items-center gap-4 text-sm text-slack-text-light dark:text-gray-400">
+            <div id="count">0 vrids</div>
+            <div id="updated">Updated just now</div>
+            <button id="downloadCsv" class="p-1 bg-green-600 text-white rounded hover:bg-green-700">
+              <i class="fas fa-file-csv"></i>
+            </button>
+            <button id="selectPendingBtn"
+              class="px-4 py-2 border border-yellow-500 text-yellow-700 bg-white hover:bg-yellow-50 rounded-lg font-medium text-sm shadow-sm">
+              <i class="fas fa-hourglass-half mr-2 text-yellow-500"></i>Pending Only
+            </button>
+            <button id="markSelectedBtn"
+              class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm opacity-50 cursor-not-allowed"
+              disabled>
+              Mark Selected as Sent ✅
+            </button>
+          </div>
+        </div>
+      </div>
+    
+
+      <!-- Table Content -->
+      <div class="flex-1 overflow-auto">
+        <table id="grid" class="w-full">
+          <thead class="bg-slack-bg-light dark:bg-gray-700 sticky top-0">
+            <tr id="thead-row"></tr>
+          </thead>
+          <tbody id="tbody" class="divide-y divide-gray-200 dark:divide-gray-600"></tbody>
+        </table>
+        <div id="empty" class="text-center py-12 text-slack-text-light dark:text-gray-400 hidden">
+          <i class="fas fa-inbox text-4xl mb-4"></i>
+          <p class="text-lg font-medium">No data found</p>
+          <p class="text-sm">Try adjusting your filters or date range</p>
+        </div>
+      </div>
+
+      <!-- Pagination will be inserted here -->
+
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Margin Calculator Modal -->
+<div id="calculatorModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-slack-text dark:text-white flex items-center gap-2">
+          <i class="fas fa-calculator text-blue-500"></i>
+          Margin Calculator
+        </h3>
+        <button id="closeCalculator" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+          <i class="fas fa-times text-gray-500 dark:text-gray-400"></i>
+        </button>
+      </div>
+    </div>
+    
+    <div class="p-6 space-y-6">
+      <!-- Revenue Input -->
+      <div>
+        <label for="revenueInput" class="block text-sm font-medium text-slack-text dark:text-gray-200 mb-2">
+          Shipper Price (£)
+        </label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <i class="fas fa-pound-sign text-gray-400"></i>
+          </div>
+          <input id="revenueInput" type="number" step="0.01" min="0"
+                 class="block w-full pl-10 pr-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg 
+                        bg-white dark:bg-gray-600 text-slack-text dark:text-white placeholder-gray-500 dark:placeholder-gray-400
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                        transition-colors duration-200"
+                 placeholder="Enter revenue amount">
+        </div>
+      </div>
+
+      <!-- Cost Input -->
+      <div>
+        <label for="costInput" class="block text-sm font-medium text-slack-text dark:text-gray-200 mb-2">
+          Carrier Price (£)
+        </label>
+        <div class="relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <i class="fas fa-pound-sign text-gray-400"></i>
+          </div>
+          <input id="costInput" type="number" step="0.01" min="0"
+                 class="block w-full pl-10 pr-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg 
+                        bg-white dark:bg-gray-600 text-slack-text dark:text-white placeholder-gray-500 dark:placeholder-gray-400
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                        transition-colors duration-200"
+                 placeholder="Enter cost amount">
+        </div>
+      </div>
+<!-- Result Display -->
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+        <div class="text-center">
+          <div class="text-sm font-medium text-slack-text-light dark:text-gray-400 mb-2">Margin Percentage</div>
+          <div id="marginResult" class="text-3xl font-bold transition-colors duration-300">
+            ---%
+          </div>
+          <div id="marginStatus" class="text-sm mt-2 font-medium"></div>
+        </div>
+        
+        <!-- Visual Indicator -->
+        <div class="mt-4">
+          <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+            <span>0%</span>
+            <span>50%</span>
+            <span>100%</span>
+          </div>
+          <div class="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+            <div id="marginBar" class="h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calculation Formula -->
+      <div class="bg-blue-50 dark:bg-blue-900 rounded-lg p-3">
+        <div class="text-xs text-blue-800 dark:text-blue-200">
+          <strong>Formula:</strong> (Revenue - Cost) / Revenue × 100
+        </div>
+        <div class="text-xs text-blue-600 dark:text-blue-300 mt-1">
+          <span id="calculationBreakdown">Enter values to see calculation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+ // Initialize page-specific functionality
+document.addEventListener('DOMContentLoaded', function () {
+  // Set current page for column configuration
+  window.currentPage = 'rlb1';
+
+  // Initialize the table manager
+  window.tableManager = new TableManager();
+
+  // Initialize manual sourcing specific features
+  initializeManualSourcing();
+
+  // INITIALISE CALCULATOR (MISSING)
+  initializeMarginCalculator();
+});
+
+function initializeManualSourcing() {
+  // Select All functionality
+  document.getElementById('selectAll').addEventListener('click', () => {
+  const checkboxes = document.querySelectorAll('#tbody .row-select');
+  const allChecked = [...checkboxes].every(cb => cb.checked);
+
+  checkboxes.forEach(cb => cb.checked = !allChecked);
+  updateSelectedCount();
+});
+  // Send Selected EML functionality
+  document.getElementById('sendSelectedEML').addEventListener('click', async function () {
+    const btn = this;
+    const checkboxes = document.querySelectorAll('#tbody .row-select:checked');
+    if (!checkboxes.length) {
+      Utils.showToast('Please select at least one row to email.', 'warning');
+      return;
+    }
+
+    const rows = [];
+    const invalidRows = [];
+    Array.from(checkboxes).forEach((cb, idx) => {
+      try {
+        const rowData = cb.getAttribute('data-row');
+        rows.push(JSON.parse(decodeURIComponent(rowData)));
+      } catch (err) {
+        invalidRows.push(idx + 1);
+        console.error('Failed to parse selected row data:', err);
+      }
+    });
+
+    if (!rows.length) {
+      Utils.showToast('Could not read selected row data. Please refresh and try again.', 'error');
+      return;
+    }
+
+    if (invalidRows.length) {
+      Utils.showToast(`Skipped ${invalidRows.length} row(s) due to invalid row data.`, 'warning');
+    }
+    try {
+      btn.disabled = true;
+      await generateBulkEmailEML(rows);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// Make updateSelectedCount globally accessible
+window.updateSelectedCount = function () {
+  const selectedCount =
+    document.querySelectorAll('#tbody .row-select:checked').length;
+
+  document.getElementById('selectedCountEML').textContent = selectedCount;
+
+  // Always keep EML button enabled; selection count is informational
+}
+
+async function markEmailGenerated(rows) {
+  const vrids = rows.map(r => r.vrid);
+  try {
+    await fetch("/api/email/mark-generated", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vrids })
+    });
+    Utils.showToast("Marked as email generated", "success");
+  } catch (err) {
+    console.error("Failed to mark email generated:", err);
+  }
+}
+
+// Removed mailto flow; only EML generation remains
+
+function formatEmailDateTime(isoString, countryCode) {
+  if (!isoString) return '';
+  const tz = countryCode === 'GB' ? 'Europe/London' : 'Europe/Paris';
+  try {
+    // Stored as UTC — append Z so new Date() parses correctly.
+    const utcStr = normalizeUtcDateString(isoString);
+    const date = new Date(utcStr);
+    if (Number.isNaN(date.getTime())) throw new Error('Invalid date');
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(date);
+    const p = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}`;
+  } catch (e) {
+    const [d, t] = String(isoString).split('T');
+    return `${d} ${(t || '').slice(0, 5)}`;
+  }
+}
+
+function normalizeUtcDateString(value) {
+  const raw = String(value).trim().replace(' ', 'T');
+  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : `${raw}Z`;
+}
+
+function buildHtmlTable(rows) {
+  const hasTourId = rows.some(r => r && r.tour_id);
+  const tableRows = rows.map(r => `
+    <tr>
+      ${hasTourId ? (r.tour_id ? `<td style="background-color:#d4edda;">${r.tour_id || ""}</td>` : `<td></td>`) : ``}
+      <td>${r.vrid || ""}</td>
+      <td>${r.origin_city || ""} ${r.origin_state || ""}, ${r.orig_address || ""},<br/> ${r.orig_country || ""}, ${r.origin_zip || ""}</td>
+      <td>${r.dest_address || ""}, ${r.dest_city || ""} ${r.dest_state || ""},<br/> ${r.dest_country || ""}, ${r.dest_zip || ""}</td>
+      <td>${r.orig_node || ""} → ${r.dest_node || ""}</td>
+      <td>${r.equipment_type || ""}</td>
+      <td>${formatEmailDateTime(r.orig_planned_yard_checkin_time, r.orig_country)}</td>
+      <td>${formatEmailDateTime(r.dest_planned_yard_checkin_time, r.dest_country)}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <table width="100%" border="1" cellpadding="6" cellspacing="0"
+           style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;">
+      <thead style="background:#00ABF0;font-weight:bold; color:#ffffff;">
+        <tr>
+          ${hasTourId ? `<th>Tour ID</th>` : ``}
+          <th>VRID</th>
+          <th>Origin</th>
+          <th>Destination</th>
+          <th>Route</th>
+          <th>Equipment</th>
+          <th>Pickup Time</th>
+          <th>Delivery Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
+  `;
+}
+
+function buildHtmlEmail(rows) {
+  const table = buildHtmlTable(rows);
+  const today = new Date().toISOString().split("T")[0];
+
+  return `
+  <html>
+    <body style="font-family:Arial,sans-serif;color:#222;">
+      <p>Hello,</p>
+
+      <p>
+        We currently have a load request available for the below lanes, therefore, can you please provide your best offer ASAP via EMAIL for our team to review internally.
+      </p>
+
+      ${table}
+
+      <p style="margin-top:20px;font-size:11px;">
+       Collection/Delivery time and date cannot be amended, please confirm transit time prior to sending offers. Please ensure your carrier SCAC Code is on your tender.<br/>
+Please kindly note: if there is no response, please assume this run has been taken or the offer wasn't accepted.<br/>
+EN: We have services at a great price on Amazon! Share your best offer in this email or visit Relay to book services. Relay: https://relay.amazon.it/loadboard/search<br/>
+ES: Tenemos servicios a buen precio en Amazon! Comparte vuestra mejor oferta en este email o visita Relay para reservar los servicios. Relay: https://relay.amazon.it/loadboard/search<br/>
+FR: Nous avons des services à des prix intéressants sur Amazon ! Faites-nous part de votre meilleure offre dans cet e-mail ou visitez Relay pour réserver des services. Relay: https://relay.amazon.it/loadboard/search<br/>
+IT: Abbiamo servizi di grande valore su Amazon! Condividete la vostra migliore offerta in questa e-mail o visitate Relay per prenotare i servizi. Relay: https://relay.amazon.it/loadboard/search<br/>
+PL: Mamy uslugi w swietnych cenach na Amazon! Podziel sie swoja najlepsza oferta w tym e-mailu lub odwiedz Relay, aby zarezerwowac uslugi. Relay: https://relay.amazon.it/loadboard/search<br/>
+
+
+      </p>
+
+      <p style="margin-top:20px;">
+        Kind Regards,<br/>
+        <strong>Amazon Freight EU Sourcing Team</strong>
+      </p>
+
+      <hr style="margin-top:30px"/>
+      <small style="color:#666;">
+        Generated on ${today}
+      </small>
+    </body>
+  </html>
+  `;
+}
+
+
+
+async function generateBulkEmailEML(rows) {
+  const today = new Date().toISOString().split("T")[0];
+  const subject = `[CST][Available Loads] – ${rows.length} load(s) – ${today}`;
+  const to = 'amazonfreight-eu-sourcing@amazon.com';
+  const cc = 'amazonfreight-eu-sourcing@amazon.com';
+
+  const htmlBody = buildHtmlEmail(rows);
+
+  const emlContent = `From: ${to}
+To: ${to}
+Cc: ${cc}
+Subject: ${subject}
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+
+${htmlBody}`;
+
+  const filename = `Manual_Sourcing_${rows.length}_Loads_${today}.eml`;
+
+  if (window.pywebview?.api) {
+    window.pywebview.api.save_file(filename, emlContent)
+      .then(path => Utils.showToast(`EML saved to ${path}`, 'success'))
+      .catch(err => Utils.showToast(err, 'error'));
+  } else {
+    const blob = new Blob([emlContent], { type: 'message/rfc822' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  await markEmailGenerated(rows);
+  Utils.showToast(`📧 HTML EML generated (${rows.length} loads)`, 'success');
+
+  // Refresh table data after generating the EML
+  if (window.tableManager?.fetchData) {
+    await window.tableManager.fetchData();
+  }
+}
+
+
+function downloadTableAsCsv(filename) {
+  const today = new Date().toISOString().split("T")[0];
+  filename = filename || `manual-sourcing-${today}.csv`;
+  
+  if (!window.tableManager || !window.tableManager.state.filtered.length) {
+    alert('No rows to download');
+    return;
+  }
+
+  const rows = window.tableManager.state.filtered;
+  const headers = window.tableManager.state.headers;
+
+  // Build CSV content
+  const csvContent = [
+    headers.join(','), // header row
+    ...rows.map(row =>
+      headers.map(h => {
+        const val = row[h];
+        return `"${(val !== undefined && val !== null ? val.toString() : '').replace(/"/g, '""')}"`;
+      }).join(',')
+    )
+  ].join('\n');
+
+  // Send to Python backend to save file
+  if (window.pywebview && window.pywebview.api) {
+    window.pywebview.api.save_csv(filename, csvContent)
+      .then(path => {
+        Utils.showToast(`CSV saved to ${path}`, 'success');
+      })
+      .catch(err => {
+        Utils.showToast(`Error saving CSV: ${err}`, 'error');
+      });
+  } else {
+    // Fallback: just trigger a download in browser
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+  }
+}
+
+// Handle checkbox change for email selection
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('email-select')) {
+    const selected = document.querySelectorAll('.email-select:checked');
+    const btn = document.getElementById('markSelectedBtn');
+    if (btn) {
+      btn.disabled = selected.length === 0;
+      btn.classList.toggle('opacity-50', selected.length === 0);
+      btn.classList.toggle('cursor-not-allowed', selected.length === 0);
+    }
+  }
+});
+
+const selectPendingBtn = document.getElementById('selectPendingBtn');
+if (selectPendingBtn) {
+  selectPendingBtn.addEventListener('click', () => {
+    const pending = Array.from(document.querySelectorAll('.email-select[data-status="pending"]'));
+    if (!pending.length) {
+      Utils.showToast('No pending rows to select', 'info');
+      return;
+    }
+    const allChecked = pending.every(cb => cb.checked);
+    pending.forEach(cb => cb.checked = !allChecked);
+    const markBtn = document.getElementById('markSelectedBtn');
+    if (markBtn) {
+      const anyChecked = pending.some(cb => cb.checked);
+      markBtn.disabled = !anyChecked;
+      markBtn.classList.toggle('opacity-50', !anyChecked);
+      markBtn.classList.toggle('cursor-not-allowed', !anyChecked);
+    }
+  });
+}
+
+// Handle markSelectedBtn click
+const markBtn = document.getElementById('markSelectedBtn');
+if (markBtn) {
+  markBtn.disabled = true;
+  markBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+  markBtn.addEventListener('click', async () => {
+    const selected = Array.from(document.querySelectorAll('.email-select:checked'))
+                          .map(cb => cb.value);
+
+    if (selected.length === 0) return;
+
+    if (!confirm(`Mark ${selected.length} VRIDs as sent?`)) return;
+
+    markBtn.disabled = true;
+    markBtn.innerHTML = 'Processing... ???';
+
+    try {
+      const res = await fetch('/api/email/mark-sent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vrids: selected }),
+      });
+      const result = await res.json();
+
+      if (result.status === 'ok') {
+        Utils.showToast(`?o. ${selected.length} VRIDs marked as sent.`, 'success');
+        if (window.tableManager) {
+          await window.tableManager.fetchData();
+        }
+      } else {
+        Utils.showToast(`??O ${result.message}`, 'error');
+      }
+    } catch (err) {
+      Utils.showToast(`?s???? Error confirming sent emails: ${err}`, 'error');
+    } finally {
+      markBtn.innerHTML = 'Mark Selected as Sent ?o.';
+      markBtn.disabled = true;
+      markBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+  });
+}
+async function confirmEmailSent(vrid) {
+  if (!confirm(`Mark VRID ${vrid} as sent?`)) return;
+
+  try {
+    const res = await fetch("/api/email/mark-sent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vrids: [vrid] })
+    });
+    const data = await res.json();
+    if (data.status === "ok") {
+      Utils.showToast(`VRID ${vrid} marked as sent`, "success");
+    } else {
+      Utils.showToast("Failed: " + data.message, "error");
+    }
+  } catch (err) {
+    console.error(err);
+    Utils.showToast("Error marking as sent", "error");
+  }
+}
+
+document.addEventListener("change", async (e) => {
+  if (!e.target.classList.contains("email-sent-toggle")) return;
+
+  const vrid = e.target.dataset.vrid;
+  if (!vrid) {
+    console.warn("Email toggle without VRID – ignored");
+    return;
+  }
+
+  const checked = e.target.checked;
+
+  try {
+    const res = await fetch("/api/toggle-email-sent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vrid, value: checked })
+    });
+
+    const json = await res.json();
+    if (json.status !== "ok") throw new Error(json.message);
+
+    Utils.showToast(
+      checked ? "Email marked as sent" : "Email unchecked",
+      "success"
+    );
+
+    await window.tableManager.fetchData(); // 🔁 auto-refresh
+
+  } catch (err) {
+    e.target.checked = !checked;
+    Utils.showToast("Failed to update email state", "error");
+  }
+});
+
+
+// Refresh button handler
+const refreshBtn = document.getElementById('refresh');
+if (refreshBtn) {
+  refreshBtn.addEventListener('click', () => {
+    if (window.tableManager) {
+      window.tableManager.fetchData();
+    }
+    Utils.showToast('Data refreshed', 'success');
+  });
+}
+
+
+// Margin Calculator functionality
+function initializeMarginCalculator() {
+  const modal = document.getElementById('calculatorModal');
+  const closeBtn = document.getElementById('closeCalculator');
+  const revenueInput = document.getElementById('revenueInput');
+  const costInput = document.getElementById('costInput');
+  const marginResult = document.getElementById('marginResult');
+  const marginStatus = document.getElementById('marginStatus');
+  const marginBar = document.getElementById('marginBar');
+  const calculationBreakdown = document.getElementById('calculationBreakdown');
+
+
+  // Close calculator
+  closeBtn.addEventListener('click', () => {
+    modal.classList.add('hidden');
+  });
+
+  // Close on escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  // Close on backdrop click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.classList.add('hidden');
+    }
+  });
+
+  // Real-time calculation
+  function calculateMargin() {
+    const revenue = parseFloat(revenueInput.value) || 0;
+    const cost = parseFloat(costInput.value) || 0;
+
+    if (revenue === 0) {
+      marginResult.textContent = '---%';
+      marginStatus.textContent = '';
+      marginBar.style.width = '0%';
+      marginBar.className = 'h-2 rounded-full transition-all duration-500';
+      calculationBreakdown.textContent = 'Enter revenue to calculate';
+      return;
+    }
+
+    // Calculate margin: (revenue - cost) / revenue * 100
+    const margin = ((cost - revenue) / revenue) * 100;
+    const marginRounded = Math.round(margin * 100) / 100; // Round to 2 decimal places
+
+    // Update result display
+    marginResult.textContent = `${marginRounded}%`;
+
+    // Color coding and status
+    if (margin > 50) {
+      marginResult.className = 'text-3xl font-bold text-red-500 transition-colors duration-300';
+      marginStatus.textContent = 'High Margin - Only a L5 can approve this margin';
+      marginStatus.className = 'text-sm mt-2 font-medium text-red-500';
+      marginBar.className = 'h-2 rounded-full transition-all duration-500 bg-red-500';
+    } else if (margin >= 30 && margin <= 50) {
+      marginResult.className = 'text-3xl font-bold text-orange-500 transition-colors duration-300';
+      marginStatus.textContent = 'Moderate Margin -Please Contact a L4 to approve this margin';
+      marginStatus.className = 'text-sm mt-2 font-medium text-orange-500';
+      marginBar.className = 'h-2 rounded-full transition-all duration-500 bg-orange-500';
+    } else {
+      marginResult.className = 'text-3xl font-bold text-green-500 transition-colors duration-300';
+      marginStatus.textContent = 'Good Margin -You can approve this margin';
+      marginStatus.className = 'text-sm mt-2 font-medium text-green-500';
+      marginBar.className = 'h-2 rounded-full transition-all duration-500 bg-green-500';
+    }
+
+    // Update progress bar (cap at 100%)
+    const barWidth = Math.min(Math.max(margin, 0), 100);
+    marginBar.style.width = `${barWidth}%`;
+
+    // Update calculation breakdown
+    calculationBreakdown.textContent = `(${cost} - ${revenue}) / ${revenue} × 100 = ${marginRounded}%`;
+  }
+
+  // Add event listeners for real-time calculation
+  revenueInput.addEventListener('input', calculateMargin);
+  costInput.addEventListener('input', calculateMargin);
+
+  // Initialize calculation
+  calculateMargin();
+}
+
+function openMarginCalculator(revenue) {
+  const modal = document.getElementById('calculatorModal');
+  const revenueInput = document.getElementById('revenueInput');
+  const costInput = document.getElementById('costInput');
+
+  // Pre-fill revenue
+  revenueInput.value = revenue;
+
+  // Reset cost (optional)
+  costInput.value = '';
+
+  modal.classList.remove('hidden');
+  revenueInput.focus();
+
+  // Trigger recalculation
+  revenueInput.dispatchEvent(new Event('input'));
+}
+
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.open-calculator');
+  if (!btn) return;
+
+  const revenue = parseFloat(btn.dataset.revenue) || 0;
+
+  openMarginCalculator(revenue);
+});
+
+// CSV Download button
+document.getElementById('downloadCsv').addEventListener('click', () => {
+  downloadTableAsCsv();
+});
+
+// Validate button (if TableTools exists)
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.TableTools && window.TableTools.addValidateButton) {
+    TableTools.addValidateButton();
+    TableTools.addValidateAddressButton('validateAddressBtn');
+  }
+});
+
+
+
+</script>
+{% endblock %}

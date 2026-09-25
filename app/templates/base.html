@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ title or 'LTL Manual Sourcing' }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { 'sans': ['Lato', 'system-ui', 'sans-serif'] },
+          colors: {
+            slack: {
+              purple: '#4A154B', 'purple-light': '#611f69', 'purple-dark': '#350d36',
+              sidebar: '#3F0E40', 'sidebar-hover': '#522653', 'sidebar-active': '#1164A3',
+              green: '#007A5A', 'green-light': '#148567', text: '#1D1C1D',
+              'text-light': '#616061', border: '#DDDDDD', 'bg-light': '#F8F8F8', 'bg-white': '#FFFFFF'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+
+<body class="h-full bg-slack-bg-light dark:bg-gray-900 font-sans transition-colors duration-200">
+  <!-- Loading Overlay -->
+  <div id="loading" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+    <div class="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center gap-4 shadow-xl">
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-slack-purple"></div>
+      <span class="text-gray-700 dark:text-gray-300 font-medium">Loading...</span>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+  <div class="h-full flex">
+    <!-- Sidebar -->
+    <aside id="sidebar"
+      class="w-64 bg-slack-sidebar dark:bg-gray-800 flex-shrink-0 flex flex-col transition-all duration-300 ease-in-out">
+      <div class="p-4 border-b border-slack-purple-light dark:border-gray-700">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="h-9 w-9 rounded-lg bg-slack-green flex items-center justify-center">
+              <i class="fas fa-truck-fast text-white"></i>
+            </div>
+            <div id="workspace-info">
+              <h1 class="text-lg font-bold text-white dark:text-white">{{ title or 'LTL MS' }}</h1>
+              <div class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span class="text-xs text-gray-300 dark:text-gray-400">Manual Sourcing</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="themeToggle"
+              class="p-2 rounded-lg hover:bg-slack-sidebar-hover dark:hover:bg-gray-700 transition-colors">
+              <i id="themeIcon" class="fas fa-moon text-gray-300 dark:text-gray-400"></i>
+            </button>
+            <button id="sidebarToggle"
+              class="p-2 rounded-lg -m-2 hover:bg-slack-sidebar-hover dark:hover:bg-gray-700 transition-colors">
+              <i class="fas fa-chevron-left text-gray-300 dark:text-gray-400"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="flex-1 px-2 pb-4">
+        <div class="space-y-1 mt-4">
+          <div class="mt-2">
+            <h3 class="px-3 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2 sidebar-text">
+              Manual Sourcing
+            </h3>
+            <div class="space-y-1">
+              <a href="/all-runs" class="nav-link group flex items-center px-3 py-2 text-sm font-medium rounded-md
+                                               {{ 'bg-slack-sidebar-active text-white' if request.endpoint == 'pages.all_runs'
+                                                  else 'text-gray-300 dark:text-gray-300 hover:bg-slack-sidebar-hover dark:hover:bg-gray-700 hover:text-white' }}
+                                               transition-colors duration-200">
+                <i class="fas fa-list w-4 mr-3"></i>
+                <span class="sidebar-text">All Runs</span>
+              </a>
+              <a href="/manual-sourcing" class="nav-link group flex items-center px-3 py-2 text-sm font-medium rounded-md
+                                               {{ 'bg-slack-sidebar-active text-white' if request.endpoint == 'pages.manual_sourcing'
+                                                  else 'text-gray-300 dark:text-gray-300 hover:bg-slack-sidebar-hover dark:hover:bg-gray-700 hover:text-white' }}
+                                               transition-colors duration-200">
+                <i class="fas fa-envelope w-4 mr-3"></i>
+                <span class="sidebar-text">Manual Sourcing</span>
+              </a>
+              <a href="/manual-sourced-runs" class="nav-link group flex items-center px-3 py-2 text-sm font-medium rounded-md
+                                               {{ 'bg-slack-sidebar-active text-white' if request.endpoint == 'pages.manual_sourced_runs'
+                                                  else 'text-gray-300 dark:text-gray-300 hover:bg-slack-sidebar-hover dark:hover:bg-gray-700 hover:text-white' }}
+                                               transition-colors duration-200">
+                <i class="fas fa-bolt w-4 mr-3"></i>
+                <span class="sidebar-text">Manual Sourced Runs</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Connection Status -->
+      <div class="p-4 border-t border-slack-purple-light dark:border-gray-700">
+        <div id="connectionStatus" class="flex items-center gap-2 mt-3 sidebar-text">
+          <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <span class="text-xs text-gray-300 dark:text-gray-400">Connected</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900 transition-all duration-300">
+      <!-- Top Header -->
+      <header class="bg-white dark:bg-gray-800 border-b border-slack-border dark:border-gray-700 px-6 py-4 flex-shrink-0">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-4">
+            <button id="mobileSidebarToggle"
+              class="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+              <i class="fas fa-bars text-gray-600 dark:text-gray-300"></i>
+            </button>
+            <div>
+              <h2 class="text-xl font-bold text-slack-text dark:text-white">
+                {% block page_title %}Manual Sourcing{% endblock %}
+              </h2>
+              <p class="text-sm text-slack-text-light dark:text-gray-400 mt-1">
+                {% block page_description %}Manage manual sourcing operations{% endblock %}
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4">
+            <!-- Search -->
+            <div class="relative">
+              <input id="globalSearch" type="search"
+                class="w-full bg-white dark:bg-gray-700 text-slack-text dark:text-white rounded-md pl-10 pr-4 py-2.5 text-sm
+                        focus:outline-none focus:ring-2 focus:ring-slack-sidebar-active focus:bg-white dark:focus:bg-gray-600
+                        placeholder-gray-500 dark:placeholder-gray-400 border border-gray-300 dark:border-gray-600 transition-colors"
+                placeholder="Search runs">
+              <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
+            </div>
+
+            <!-- Update from SMC -->
+            <button id="updateCstBtn"
+              class="px-4 py-2 bg-slack-green hover:bg-slack-green-light text-white rounded-lg font-medium text-sm transition-colors">
+              <i class="fas fa-sync-alt mr-2"></i>Update from SMC
+            </button>
+
+            <!-- Sync status pills -->
+            <div id="syncStatusPills" class="hidden md:flex items-center gap-2">
+              <div data-sync-source="smc"
+                   class="sync-pill flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-default"
+                   title="SMC last update">
+                <span class="sync-dot inline-block w-2 h-2 rounded-full bg-gray-400"></span>
+                <span class="font-semibold uppercase tracking-wide">SMC</span>
+                <span class="sync-relative text-gray-500 dark:text-gray-400">--</span>
+              </div>
+              <div data-sync-source="fmc"
+                   class="sync-pill flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-default"
+                   title="FMC last update">
+                <span class="sync-dot inline-block w-2 h-2 rounded-full bg-gray-400"></span>
+                <span class="font-semibold uppercase tracking-wide">FMC</span>
+                <span class="sync-relative text-gray-500 dark:text-gray-400">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Content Area -->
+      <div class="flex-1 overflow-hidden">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+
+  <!-- Mobile Sidebar Overlay -->
+  <div id="sidebarOverlay" class="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40 hidden"></div>
+
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/filters.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/navigation.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/table.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/sync-status.js') }}?v=3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment-timezone@0.5.43/builds/moment-timezone-with-data.min.js"></script>
+  <script src="{{ url_for('static', filename='js/table-tools.js') }}"></script>
+
+  <script>
+    // Wire the manual-sourcing action buttons (no-ops if the button isn't on
+    // this page). These call the pywebview desktop API when running in the app.
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.TableTools) {
+        window.TableTools.addValidateButton('validateBtn');
+        window.TableTools.addValidateAddressButton('validateAddressBtn');
+        window.TableTools.addCstUpdateButton('updateCstBtn');
+      }
+    });
+  </script>
+</body>
+
+</html>

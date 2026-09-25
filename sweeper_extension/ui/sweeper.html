@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lobby Sweeper</title>
+  <link rel="icon" href="../icons/icon-48.png" />
+  <link rel="stylesheet" href="sweeper.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="../icons/icon-48.png" alt="" width="28" height="28" />
+      <div>
+        <h1>Lobby Sweeper</h1>
+        <p id="teamLine" class="muted">Paragon lobby · team —</p>
+      </div>
+    </div>
+
+    <div class="actions" role="group" aria-label="Run">
+      <span id="sessionBadge" class="pill pill-muted" title="Session status">sessions: checking…</span>
+      <button id="btnCheckSessions" class="btn btn-ghost" type="button">Check sessions</button>
+      <button id="btnRunSweep" class="btn" type="button" disabled aria-disabled="true" title="Use Run both — the sweep and the SLA check run together">Run sweep</button>
+      <button id="btnRunLobby" class="btn" type="button" disabled aria-disabled="true" title="Use Run both — the sweep and the SLA check run together">Run SLA check</button>
+      <button id="btnRunCycle" class="btn btn-primary" type="button">Run both</button>
+      <label class="switch" title="Run automatically on the interval set in Settings">
+        <input id="schedToggle" type="checkbox" />
+        <span>Scheduler</span>
+      </label>
+      <div id="countdown" class="countdown" hidden role="timer" aria-live="off" title="Time until the next scheduled run">
+        <svg viewBox="0 0 36 36" width="36" height="36" aria-hidden="true">
+          <circle class="cd-track" cx="18" cy="18" r="15.5" />
+          <circle id="cdRing" class="cd-ring" cx="18" cy="18" r="15.5" />
+        </svg>
+        <span id="cdText" class="cd-text">—</span>
+      </div>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden role="status"></div>
+  <div id="busy" class="busy" hidden aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="busyText">Working…</span>
+    <button id="btnStop" class="btn btn-stop" type="button" title="Stop after the current batch (partial results are discarded)">Stop</button>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" role="tab" data-tab="sweep" aria-selected="true">Wrong-queue sweep <span id="sweepCount" class="count"></span></button>
+    <button class="tab" role="tab" data-tab="lobby" aria-selected="false">SLA monitor <span id="lobbyCount" class="count"></span></button>
+    <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    <button class="tab" role="tab" data-tab="log" aria-selected="false">Log <span id="logCount" class="count"></span></button>
+  </nav>
+
+  <!-- ── Sweep ─────────────────────────────────────────────────────────── -->
+  <section id="tab-sweep" class="panel" role="tabpanel">
+    <div class="stats" id="sweepStats"></div>
+
+    <div class="toolbar">
+      <input id="sweepSearch" type="search" placeholder="Search cases…" aria-label="Search sweep results" />
+      <select id="sweepFilter" aria-label="Queue status filter">
+        <option value="">All queues</option>
+        <option value="check" selected>Wrong queue only</option>
+        <option value="good">Good queue only</option>
+      </select>
+      <select id="sweepCstFilter" aria-label="CST link filter">
+        <option value="">CST-linked: any</option>
+        <option value="yes">CST-linked: yes</option>
+        <option value="no">CST-linked: no</option>
+      </select>
+      <span class="spacer"></span>
+      <span id="sweepShown" class="muted"></span>
+      <button id="btnSweepCsv" class="btn btn-ghost" type="button">Download CSV</button>
+    </div>
+
+    <div class="table-wrap">
+      <table id="sweepTable" class="grid">
+        <thead><tr id="sweepHead"></tr></thead>
+        <tbody id="sweepBody"></tbody>
+      </table>
+      <div id="sweepEmpty" class="empty">
+        <p><strong>No sweep results yet.</strong></p>
+        <p class="muted">Run sweep: CST shipper IDs (SharePoint) → their SMC orders in the window → VRIDs confirmed in FMC → Paragon search for every order ID and VRID → cases flagged when outside the CST queues, with a CST-link check.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Lobby / SLA ───────────────────────────────────────────────────── -->
+  <section id="tab-lobby" class="panel" role="tabpanel" hidden>
+    <div class="stats" id="lobbyStats"></div>
+
+    <div class="toolbar">
+      <div id="alertTypeChips" class="chips" role="group" aria-label="Alert type filter"></div>
+      <span class="spacer"></span>
+      <input id="lobbySearch" type="search" placeholder="Search alerts…" aria-label="Search alerts" />
+    </div>
+
+    <div class="table-wrap">
+      <table id="alertTable" class="grid">
+        <thead><tr id="alertHead"></tr></thead>
+        <tbody id="alertBody"></tbody>
+      </table>
+      <div id="alertEmpty" class="empty">
+        <p><strong>No SLA alerts.</strong></p>
+        <p class="muted">Run SLA check searches the team's lobby queues and raises Needs Response, New Case and PAA Overdue alerts.</p>
+      </div>
+    </div>
+
+    <details class="sub">
+      <summary>All lobby cases (<span id="lobbyRowCount">0</span>)</summary>
+      <div class="table-wrap">
+        <table id="lobbyTable" class="grid">
+          <thead><tr id="lobbyHead"></tr></thead>
+          <tbody id="lobbyBody"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <!-- ── Settings ─────────────────────────────────────────────────────── -->
+  <section id="tab-settings" class="panel" role="tabpanel" hidden>
+    <form id="settingsForm" class="settings">
+      <div class="cards">
+
+        <section class="card">
+          <h2>Team &amp; data window</h2>
+          <div class="field">
+            <label for="setTeam">Team</label>
+            <select id="setTeam" name="team"></select>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="setDaysBack">Days back</label>
+              <input type="number" id="setDaysBack" name="daysBack" min="0" max="60" step="1" />
+            </div>
+            <div class="field">
+              <label for="setDaysForward">Days forward</label>
+              <input type="number" id="setDaysForward" name="daysForward" min="0" max="60" step="1" />
+            </div>
+            <p class="hint" id="windowHint"></p>
+          </div>
+          <p class="hint">SMC orders are selected by <em>origin date</em> from today − days back to today + days forward (whole UTC days).</p>
+        </section>
+
+        <section class="card">
+          <h2>Queues &amp; exclusions</h2>
+          <div class="field">
+            <label for="setValidQueues">Valid queues — sweep <span class="hint">(one per line; an open case outside these is flagged "check")</span></label>
+            <textarea id="setValidQueues" name="validQueues" rows="7" spellcheck="false"></textarea>
+          </div>
+          <div class="field">
+            <label for="setLobbyQueues">Lobby queues — SLA monitor <span class="hint">(one per line; the queues searched for SLA alerts)</span></label>
+            <textarea id="setLobbyQueues" name="lobbyQueues" rows="2" spellcheck="false"></textarea>
+          </div>
+          <div class="field">
+            <label for="setExcludeSubjects">Exclude cases whose subject contains <span class="hint">(one per line, case-insensitive)</span></label>
+            <textarea id="setExcludeSubjects" name="excludeSubjects" rows="3" spellcheck="false" placeholder="[IM RAIL 1P][EDI] Terminal check in confirmation"></textarea>
+          </div>
+          <div class="btnrow">
+            <button type="button" id="btnResetQueues" class="btn btn-ghost">Reset all three to team defaults</button>
+            <span class="hint">Changes apply after Save.</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>CST shipper IDs</h2>
+          <p class="hint">The SMC pull is restricted to these shippers, like CST_viewer. Read from <code>source_of_truth_crawler.csv</code> on SharePoint (needs a <code>shipperid</code> column).</p>
+          <div id="shipperStatus" class="status">Checking…</div>
+          <div class="field">
+            <label for="setShipperPath">SharePoint path or URL of the CSV <span class="hint">(optional — tried first)</span></label>
+            <input type="text" id="setShipperPath" name="shipperPath" placeholder="/sites/AmazonFreightOperations/…/source_of_truth_crawler.csv" autocomplete="off" />
+          </div>
+          <div class="btnrow">
+            <button type="button" id="btnShippersRefresh" class="btn btn-ghost">Re-read from SharePoint</button>
+            <label class="btn btn-ghost" for="shipperCsvFile">Import CSV…</label>
+            <input type="file" id="shipperCsvFile" accept=".csv,text/csv" hidden />
+            <button type="button" id="btnShippersClearImport" class="btn btn-ghost">Remove import</button>
+          </div>
+          <p class="hint">An imported CSV is only used when SharePoint is unreadable.</p>
+        </section>
+
+        <section class="card">
+          <h2>Scheduler</h2>
+          <label class="check"><input type="checkbox" id="setScheduleEnabled" name="scheduleEnabled" /> Run automatically</label>
+          <div class="field-row">
+            <div class="field">
+              <label for="setScheduleMinutes">Every (minutes)</label>
+              <input type="number" id="setScheduleMinutes" name="scheduleMinutes" min="5" step="5" />
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="setRunSweep" name="runSweep" /> Include wrong-queue sweep</label>
+          <label class="check"><input type="checkbox" id="setRunLobby" name="runLobby" /> Include SLA monitor</label>
+          <p class="hint">Missing SharePoint / SMC / FMC / Paragon tabs are opened in the background. An expired Midway session is reported in the banner instead of failing silently.</p>
+        </section>
+
+        <section class="card">
+          <h2>Notifications</h2>
+          <label class="check"><input type="checkbox" id="setDesktop" name="desktopNotifications" /> Desktop notifications</label>
+          <div class="field">
+            <label for="setSlack">Slack incoming webhook URL <span class="hint">(ask Mayowa for the #cst-sla-notifier webhook; empty = Slack off)</span></label>
+            <input type="url" id="setSlack" name="slackWebhook" placeholder="https://hooks.slack.com/services/…" autocomplete="off" />
+          </div>
+          <label class="check"><input type="checkbox" id="setSlackAlerts" name="slackAlerts" /> Post SLA alerts to Slack</label>
+          <label class="check"><input type="checkbox" id="setSlackWrongQueue" name="slackWrongQueue" /> Post wrong-queue digest to Slack</label>
+          <div class="field-row">
+            <div class="field">
+              <label for="setDedupe">Don't re-notify the same case for (minutes)</label>
+              <input type="number" id="setDedupe" name="alertDedupeMinutes" min="0" step="30" />
+            </div>
+          </div>
+          <div class="btnrow">
+            <button type="button" id="btnTestSlack" class="btn btn-ghost">Send Slack test</button>
+            <button type="button" id="btnClearLog" class="btn btn-ghost">Reset notification memory</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Diagnostics</h2>
+          <label class="check"><input type="checkbox" id="setDebug" name="debug" /> Verbose log (every bridge call and HTTP round-trip)</label>
+          <p class="hint">Pipeline steps, warnings and errors are always logged. See the Log tab.</p>
+        </section>
+
+      </div>
+
+      <div class="savebar">
+        <button type="submit" class="btn btn-primary">Save settings</button>
+        <span id="settingsSaved" class="muted"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ── Log ───────────────────────────────────────────────────────────── -->
+  <section id="tab-log" class="panel" role="tabpanel" hidden>
+    <div class="toolbar">
+      <span id="logMeta" class="muted"></span>
+      <span class="spacer"></span>
+      <label class="switch"><input type="checkbox" id="logPipelineOnly" checked /> <span>Pipeline steps only</span></label>
+      <label class="switch"><input type="checkbox" id="logErrorsOnly" /> <span>Warnings &amp; errors only</span></label>
+      <button id="btnLogCopy" class="btn btn-ghost" type="button">Copy log</button>
+      <button id="btnLogClear" class="btn btn-ghost" type="button">Clear</button>
+    </div>
+    <pre id="logView" class="log" aria-live="polite"></pre>
+  </section>
+
+  <script type="module" src="sweeper.js"></script>
+</body>
+</html>

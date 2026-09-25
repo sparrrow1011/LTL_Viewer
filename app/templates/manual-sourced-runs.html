@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block page_title %}Manual Sourcing{% endblock %}
+{% block page_description %}Manage manual sourcing operations and bulk email communications{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col">
+  <!-- Filters Section -->
+
+  <div
+    class="flex-shrink-0 px-6 py-4 bg-slack-bg-light dark:bg-gray-700 border-b border-slack-border dark:border-gray-600">
+    <div class="flex flex-wrap items-center gap-4">
+      <div class="flex items-center gap-2">
+        <i class="fas fa-filter text-slack-text-light dark:text-gray-400"></i>
+        <span class="text-sm font-medium text-slack-text dark:text-white">Filters:</span>
+      </div>
+      <input type="date" id="startDate" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+      <input type="date" id="endDate" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+      <input type="week" id="manualSourceWeek" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+      <select id="country" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                 border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                 focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+        <option value="">All Countries</option>
+      </select>
+
+      <select id="executionStatus" class="hidden px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                         border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                         focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+        <option value="">All Statuses</option>
+      </select>
+
+      <select id="shipper" class="px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white 
+                                         border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2 
+                                         focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm">
+        <option value="">All Shippers</option>
+      </select>
+
+      <button id="applyFilter" class="px-4 py-2 bg-slack-sidebar-active hover:bg-blue-700 text-white rounded-lg 
+                                     font-medium text-sm transition-colors duration-200 focus:outline-none 
+                                     focus:ring-2 focus:ring-slack-sidebar-active">
+        <i class="fas fa-search mr-2"></i>Apply Filters
+      </button>
+      <button id="clearFilter" class="px-4 py-2 bg-slack-sidebar-active hover:bg-red-700 text-white rounded-lg 
+                                     font-medium text-sm transition-colors duration-200 focus:outline-none 
+                                     focus:ring-2 focus:ring-slack-sidebar-active">
+        <i class="fas fa-times mr-2"></i>Clear Filters
+      </button>
+
+    </div>
+  </div>
+
+  <!-- Data Table -->
+  <!-- Data Table Area -->
+  <div class="flex-1 overflow-hidden px-6 py-4">
+    <div
+      class="h-full bg-white dark:bg-gray-800 rounded-lg border border-slack-border dark:border-gray-700 flex flex-col">
+      <!-- Table Header -->
+      <div class="flex-shrink-0 px-6 py-4 border-b border-slack-border dark:border-gray-700">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-slack-text dark:text-white">Manual Sourcing Data</h3>
+          <div class="flex items-center gap-4 text-sm text-slack-text-light dark:text-gray-400">
+            <div id="count">0 vrids</div>
+            <div id="updated">Updated just now</div>
+            <button id="downloadCsv" class="p-1 bg-green-600 text-white rounded hover:bg-green-700">
+              <i class="fas fa-file-csv"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table Content -->
+      <div class="flex-1 overflow-auto">
+        <table id="grid" class="w-full">
+          <thead class="bg-slack-bg-light dark:bg-gray-700 sticky top-0">
+            <tr id="thead-row"></tr>
+          </thead>
+          <tbody id="tbody" class="divide-y divide-gray-200 dark:divide-gray-600"></tbody>
+        </table>
+        <div id="empty" class="text-center py-12 text-slack-text-light dark:text-gray-400 hidden">
+          <i class="fas fa-inbox text-4xl mb-4"></i>
+          <p class="text-lg font-medium">No data found</p>
+          <p class="text-sm">Try adjusting your filters or date range</p>
+        </div>
+      </div>
+
+      <!-- Pagination will be inserted here -->
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  // Initialize page-specific functionality
+  document.addEventListener('DOMContentLoaded', function () {
+    // Set current page for column configuration
+    window.currentPage = 'rlb1';
+
+    // Initialize the table manager
+    window.tableManager = new TableManager();
+
+  });
+
+
+  const today = new Date().toISOString().split("T")[0];
+  function downloadTableAsCsv(filename = `manual-sourced-runs-${today}.csv`) {
+    if (!window.tableManager || !window.tableManager.state.filtered.length) {
+      alert('No rows to download');
+      return;
+    }
+
+    const rows = window.tableManager.state.filtered;
+    const headers = window.tableManager.state.headers;
+
+    // Build CSV content
+    const csvContent = [
+      headers.join(','), // header row
+      ...rows.map(row =>
+        headers.map(h => {
+          const val = row[h];
+          return `"${(val !== undefined && val !== null ? val.toString() : '').replace(/"/g, '""')}"`;
+        }).join(',')
+      )
+    ].join('\n');
+
+    // Trigger download
+    // Send to Python backend to save file
+    if (window.pywebview && window.pywebview.api) {
+      window.pywebview.api.save_csv(filename, csvContent)
+        .then(path => {
+          Utils.showToast(`CSV saved to ${path}`, 'success');
+        })
+        .catch(err => {
+          Utils.showToast(`Error saving CSV: ${err}`, 'error');
+        });
+    } else {
+      // Fallback: just trigger a download in browser
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+    }
+
+  }
+
+
+  document.getElementById('downloadCsv').addEventListener('click', () => {
+    downloadTableAsCsv();
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MS Viewer</title>
+    <link rel="icon" href="../icons/icon-48.png" />
+    <link rel="stylesheet" href="../content/overlay.css" />
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <!--
+      MS Viewer as a standalone page. The former overlay scripts run here
+      unchanged; overlay.js builds the whole UI into document.body. Data comes
+      from the background (SharePoint / FMC / SMC bridges) via runtime messages.
+      eml.js + dashboard.js expose window.__ltlEml / window.__ltlDashboard.
+    -->
+    <script src="../content/eml.js"></script>
+    <script src="../content/dashboard.js"></script>
+    <script src="../content/overlay.js"></script>
+  </body>
+</html>

@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "MS Viewer",
+  "version": "0.3.4",
+  "description": "Manual Sourcing Viewer: full-page LTL/CST manual-sourcing table, outcomes dashboard and EML generation over SMC/FMC, backed by SharePoint.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ltl-viewer-overlay@internal",
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://smc-eu-dub.dub.proxy.amazon.com/*",
+    "https://amazongbr.sharepoint.com/*",
+    "https://trans-logistics-eu.amazon.com/*"
+  ],
+  "background": {
+    "scripts": ["background/background.js"],
+    "type": "module"
+  },
+  "action": {
+    "default_title": "MS Viewer",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://smc-eu-dub.dub.proxy.amazon.com/*"],
+      "js": ["content/smc.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://amazongbr.sharepoint.com/sites/AmazonFreightOperations/*"],
+      "js": ["content/sp-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://trans-logistics-eu.amazon.com/fmc/*"],
+      "js": ["content/fmc-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  }
+}

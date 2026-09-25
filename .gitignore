@@ -1,0 +1,16 @@
+venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec.bak
+data/
+.env
+
+# Firefox extension build artifacts (both extensions)
+**/web-ext-artifacts/
+**/.amo-upload-uuid
+
+# Local agent tooling / scratch — not project code
+skills/
+usage

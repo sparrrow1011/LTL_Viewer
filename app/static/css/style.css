@@ -1,0 +1,290 @@
+/* Slack-Style Dashboard CSS */
+
+/* Smooth transitions for theme switching */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Custom scrollbar - Slack style */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-500;
+}
+
+/* Table styles */
+#grid {
+  @apply w-full border-collapse;
+}
+
+#grid th {
+  @apply bg-slack-bg-light dark:bg-gray-700 px-6 py-3 text-left text-xs font-semibold text-slack-text dark:text-gray-300 uppercase tracking-wider cursor-pointer;
+}
+
+#grid th:hover {
+  @apply bg-gray-100 dark:bg-gray-600;
+}
+
+#grid td {
+  @apply px-6 py-4 whitespace-nowrap text-sm text-slack-text dark:text-gray-100;
+}
+
+#grid tbody tr {
+  @apply border-b border-gray-100 dark:border-gray-700;
+}
+
+#grid tbody tr:hover {
+  @apply bg-slack-bg-light dark:bg-gray-700;
+}
+
+/* Loading animation */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Toast animations */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.toast-enter {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.toast-exit {
+  animation: slideOutRight 0.3s ease-in;
+}
+
+/* Navigation active states */
+.nav-link.active {
+  @apply bg-slack-sidebar-active text-white;
+}
+
+/* Form elements - Slack style */
+input[type="text"],
+input[type="search"],
+input[type="date"],
+select {
+  @apply transition-all duration-200;
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="date"]:focus,
+select:focus {
+  @apply ring-2 ring-slack-sidebar-active ring-opacity-50;
+}
+
+/* Button styles */
+button {
+  @apply transition-all duration-200;
+}
+
+button:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Slack-style message bubbles */
+.message-bubble {
+  @apply bg-slack-bg-light dark:bg-gray-700 rounded-lg p-4 max-w-2xl;
+}
+
+/* Card styles */
+.card {
+  @apply bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-slack-border dark:border-gray-700;
+}
+
+/* Pagination styles */
+#pagination {
+  @apply flex items-center justify-between px-6 py-3 border-t border-slack-border dark:border-gray-700 bg-slack-bg-light dark:bg-gray-700;
+}
+
+#pagination button {
+  @apply px-3 py-2 text-sm font-medium text-slack-text-light dark:text-gray-400 bg-white dark:bg-gray-600 
+         border border-gray-300 dark:border-gray-500 rounded-md hover:bg-gray-50 dark:hover:bg-gray-500 
+         disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+}
+
+body {
+  zoom: 0.85;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+
+/* Responsive design */
+@media (max-width: 768px) {
+  aside {
+    @apply fixed inset-y-0 left-0 z-50 transform -translate-x-full;
+  }
+  
+  aside.open {
+    @apply translate-x-0;
+  }
+}
+
+/* Print styles */
+@media print {
+  aside,
+  .no-print {
+    display: none !important;
+  }
+  
+  main {
+    margin-left: 0 !important;
+  }
+  
+  #grid {
+    font-size: 12px;
+  }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus styles for keyboard navigation */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  @apply outline-2 outline-offset-2 outline-slack-sidebar-active;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .card {
+    @apply border-2 border-gray-900 dark:border-gray-100;
+  }
+  
+  button {
+    @apply border-2 border-current;
+  }
+}
+
+/* Slack-specific styling */
+.slack-sidebar-section {
+  @apply mt-6 first:mt-0;
+}
+
+.slack-sidebar-section h3 {
+  @apply px-3 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2;
+}
+
+/* Message area styling */
+.message-area {
+  @apply space-y-4;
+}
+
+.message-item {
+  @apply flex gap-3;
+}
+
+.message-avatar {
+  @apply w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0;
+}
+
+.message-content {
+  @apply flex-1;
+}
+
+.message-header {
+  @apply flex items-center gap-2 mb-1;
+}
+
+.message-author {
+  @apply font-bold text-slack-text dark:text-white;
+}
+
+.message-time {
+  @apply text-xs text-slack-text-light dark:text-gray-400;
+}
+
+/* Status indicators */
+.status-indicator {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-online {
+  @apply bg-green-400;
+}
+
+.status-offline {
+  @apply bg-gray-400;
+}
+
+.status-away {
+  @apply bg-yellow-400;
+}
+
+/* Hover effects */
+.hover-lift:hover {
+  transform: translateY(-1px);
+  @apply shadow-lg;
+}
+
+/* Custom checkbox styling */
+input[type="checkbox"] {
+  @apply rounded border-gray-300 dark:border-gray-600 text-slack-sidebar-active focus:ring-slack-sidebar-active;
+}
+
+/* Table row selection */
+#tbody tr.selected {
+  @apply bg-blue-50 dark:bg-blue-900 border-blue-200 dark:border-blue-700;
+}
+
+.audit-tab.active {
+  @apply bg-slack-sidebar-active text-white rounded-md px-3 py-1;
+}
+
+/* Auditing filters */
+.audit-filters select,
+.audit-filters input[type="date"] {
+  @apply w-full px-3 py-2 rounded-lg bg-white dark:bg-gray-600 text-slack-text dark:text-white
+    border border-gray-300 dark:border-gray-500 focus:outline-none focus:ring-2
+    focus:ring-slack-sidebar-active focus:border-slack-sidebar-active text-sm;
+}
+
+.audit-filters select[multiple] {
+  @apply h-24;
+}

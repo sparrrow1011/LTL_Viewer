@@ -1,0 +1,20 @@
+/* Standalone-page overrides for the former overlay panel. */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #f1f5f9;
+  font: 13px/1.4 Arial, sans-serif;
+}
+/* The panel fills the viewport instead of floating over SMC. */
+#ltl-overlay.ltl-page {
+  position: fixed;
+  inset: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ltl-header .ltl-brand {
+  font-weight: 700;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  letter-spacing: 0.3px;
+}
