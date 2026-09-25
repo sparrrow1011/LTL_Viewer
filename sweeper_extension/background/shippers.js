@@ -161,7 +161,9 @@ export async function spRequest({ method = "GET", path, body = null, etag = "*" 
   try {
     return await bridge.call({ action: "sp:req", method, path, body, etag });
   } catch (e) {
-    return { ok: false, status: e.status || 0, body: e.message, expired: !!e.expired, data: null };
+    // bridge.call folds a non-ok reply into an Error; keep SharePoint's own
+    // error text (e.body) so a 400 says WHICH field it disliked.
+    return { ok: false, status: e.status || 0, body: e.body || e.message, expired: !!e.expired, data: null };
   }
 }
 

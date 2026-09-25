@@ -67,9 +67,27 @@ async function req(method, path, body) {
   return r.data;
 }
 
-/** Create the list + text columns if missing (idempotent, once per session). */
+// Display title -> InternalName for our columns. SharePoint does NOT keep the
+// title as the internal name when it collides with a built-in (e.g. "Version"
+// becomes "Version0") or contains special chars, and item POST/MERGE must use
+// the internal name or it 400s. Resolved once per session from /fields.
+let _internal = null;
+
+async function readFieldMap() {
+  const f = await req("GET", listPath("/fields?$select=InternalName,Title,Hidden,ReadOnlyField&$top=500"));
+  const byTitle = new Map();
+  for (const x of f.value || []) {
+    if (!x.Title || !x.InternalName) continue;
+    // Prefer a writable, non-hidden field when several share a title.
+    const cur = byTitle.get(x.Title);
+    if (!cur || (cur.Hidden || cur.ReadOnlyField) && !(x.Hidden || x.ReadOnlyField)) byTitle.set(x.Title, x);
+  }
+  return byTitle;
+}
+
+/** Create the list + text columns if missing; resolve internal names. */
 async function ensureList() {
-  if (_ensured) return;
+  if (_ensured && _internal) return _internal;
   let exists = true;
   try {
     await req("GET", listPath());
@@ -81,22 +99,31 @@ async function ensureList() {
     cfg.log.info("usage", `creating SharePoint list '${LIST}'`);
     await req("POST", "/web/lists", { BaseTemplate: 100, Title: LIST, AllowContentTypes: false });
   }
-  let have = new Set();
-  try {
-    const f = await req("GET", listPath("/fields?$select=InternalName,Title&$top=500"));
-    for (const x of f.value || []) {
-      if (x.InternalName) have.add(x.InternalName);
-      if (x.Title) have.add(x.Title);
-    }
-  } catch (_) {
-    have = new Set();
+  let byTitle = await readFieldMap();
+  const wanted = [...COLUMNS, "Payload"];
+  let added = false;
+  for (const col of wanted) {
+    const f = byTitle.get(col);
+    if (f && !f.ReadOnlyField) continue;
+    // Built-in read-only fields (e.g. "Version") can't be written: create our
+    // own column with a safe title instead ("Version" -> "ExtVersion").
+    const title = f && f.ReadOnlyField ? `Ext${col}` : col;
+    if (byTitle.has(title) && !byTitle.get(title).ReadOnlyField) continue;
+    cfg.log.info("usage", `adding column '${title}' to '${LIST}'`);
+    await req("POST", listPath("/fields"), { Title: title, FieldTypeKind: col === "Payload" ? 3 : 2 });
+    added = true;
   }
-  for (const col of [...COLUMNS, "Payload"]) {
-    if (have.has(col)) continue;
-    cfg.log.info("usage", `adding column '${col}' to '${LIST}'`);
-    await req("POST", listPath("/fields"), { Title: col, FieldTypeKind: col === "Payload" ? 3 : 2 });
+  if (added) byTitle = await readFieldMap();
+  const map = {};
+  for (const col of wanted) {
+    const f = [byTitle.get(col), byTitle.get(`Ext${col}`)].find((x) => x && !x.ReadOnlyField);
+    if (!f) throw new Error(`column '${col}' missing on '${LIST}' after provisioning`);
+    map[col] = f.InternalName;
   }
+  cfg.log.debug("usage", `field map: ${JSON.stringify(map)}`);
+  _internal = map;
   _ensured = true;
+  return map;
 }
 
 function browserShort() {
@@ -145,8 +172,8 @@ export async function report(reason = "tick", { force = false, ran = false } = {
         runs,
         browser: browserShort(),
       };
-      const fields = {
-        Title: `${cfg.slug}|${installId}`,
+      const map = await ensureList();
+      const byTitle = {
         Extension: cfg.slug,
         Alias: alias,
         Version: cfg.version,
@@ -157,8 +184,8 @@ export async function report(reason = "tick", { force = false, ran = false } = {
         Browser: row.browser,
         Payload: JSON.stringify(row),
       };
-
-      await ensureList();
+      const fields = { Title: `${cfg.slug}|${installId}` };
+      for (const [t, v] of Object.entries(byTitle)) fields[map[t]] = v;
 
       // Find our item (by remembered Id, else by Title) and MERGE; else POST.
       let itemId = st.itemId;
@@ -199,4 +226,27 @@ export async function report(reason = "tick", { force = false, ran = false } = {
 /** For the UI: what this install has recorded locally. */
 export async function local() {
   return stored();
+}
+
+/**
+ * Read every install row (both extensions). Uses the resolved internal names
+ * so a renamed column ("Version" -> "Version0") still maps back correctly.
+ * Throws with .expired on a SharePoint sign-in problem.
+ */
+export async function roster() {
+  const map = await ensureList();
+  const sel = ["Id", "Title", ...Object.values(map).filter((n) => n !== map.Payload)].join(",");
+  const data = await req("GET", listPath(`/items?$select=${sel}&$top=2000`));
+  return (data.value || []).map((x) => ({
+    id: x.Id,
+    extension: x[map.Extension] || "",
+    installId: String(x.Title || "").split("|")[1] || "",
+    alias: x[map.Alias] || "",
+    version: x[map.Version] || "",
+    firstSeen: x[map.FirstSeen] || "",
+    lastSeen: x[map.LastSeen] || "",
+    lastRun: x[map.LastRun] || "",
+    runs: Number(x[map.Runs] || 0),
+    browser: x[map.Browser] || "",
+  }));
 }

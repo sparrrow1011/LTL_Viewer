@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lobby Sweeper",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Paragon lobby sweeper: flags cases sitting in the wrong queue and raises SLA alerts (needs response, unassigned, PAA overdue) for the team's Paragon lobby.",
   "browser_specific_settings": {
     "gecko": {

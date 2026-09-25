@@ -243,33 +243,10 @@ const HANDLERS = {
   // Usage roster: force a report now (Settings button).
   usageReport: () => usage.report("manual", { force: true }),
   // Usage roster: all installs (both extensions) from the SharePoint list.
-  usageRoster: async () => {
-    const r = await shippers.spRequest({
-      method: "GET",
-      path: `/web/lists/getbytitle('Extension_Installs')/items?$select=Id,Title,Extension,Alias,Version,FirstSeen,LastSeen,LastRun,Runs,Browser&$top=2000`,
-    });
-    if (!r.ok) {
-      const err = new Error(r.status === 404 ? "No Extension_Installs list yet — nobody has reported." : `SharePoint HTTP ${r.status}: ${r.body || ""}`);
-      err.expired = !!r.expired;
-      throw err;
-    }
-    const rows = (r.data && r.data.value) || [];
-    return {
-      rows: rows.map((x) => ({
-        id: x.Id,
-        extension: x.Extension || "",
-        installId: String(x.Title || "").split("|")[1] || "",
-        alias: x.Alias || "",
-        version: x.Version || "",
-        firstSeen: x.FirstSeen || "",
-        lastSeen: x.LastSeen || "",
-        lastRun: x.LastRun || "",
-        runs: Number(x.Runs || 0),
-        browser: x.Browser || "",
-      })),
-      listUrl: `${Config.SP_ORIGIN}/sites/AmazonFreightOperations/Lists/Extension_Installs`,
-    };
-  },
+  usageRoster: async () => ({
+    rows: await usage.roster(),
+    listUrl: `${Config.SP_ORIGIN}/sites/AmazonFreightOperations/Lists/Extension_Installs`,
+  }),
 
   clearAlertLog: async () => {
     await store.patchState({ alertLog: {} });

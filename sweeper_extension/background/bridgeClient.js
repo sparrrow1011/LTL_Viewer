@@ -180,10 +180,12 @@ export function makeBridge({ name, tabMatch, tabUrl, script }) {
     }
     if (!resp || !resp.bridge) throw new Error(`${name} bridge returned no response`);
     if (!resp.ok) {
-      log.warn(name, `← ${message.action} failed after ${Date.now() - t0}ms: ${resp.error}`);
-      const err = new Error(resp.error || `${name} bridge failed (HTTP ${resp.status})`);
+      const detail = resp.error || (resp.body ? String(resp.body).slice(0, 300) : "");
+      log.warn(name, `← ${message.action} failed after ${Date.now() - t0}ms: HTTP ${resp.status} ${detail}`);
+      const err = new Error(detail || `${name} bridge failed (HTTP ${resp.status})`);
       err.status = resp.status;
       err.expired = !!resp.expired;
+      err.body = resp.body;
       throw err;
     }
     log.debug(name, `← ${message.action} ok in ${Date.now() - t0}ms`);
