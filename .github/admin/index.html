@@ -40,7 +40,9 @@
   .banner.err { background:var(--bad-bg); color:var(--bad); border-color:transparent; }
   .banner.warn { background:var(--warn-bg); color:var(--warn); border-color:transparent; }
   [hidden] { display:none !important; }
-  .dirty { outline:2px solid var(--warn); outline-offset:2px; }
+  .dirty { outline:3px solid var(--warn); outline-offset:2px; }
+  .dirtybar { background:var(--warn-bg); color:var(--warn); border-radius:var(--r); padding:8px 12px; font-weight:600; }
+  .dirtybar.danger { background:var(--bad-bg); color:var(--bad); }
 </style>
 </head>
 <body>
@@ -74,9 +76,10 @@
   <section class="card ext">
     <div class="row" style="justify-content:space-between">
       <h2 style="margin:0"><span class="name"></span> <span class="ver pill pill-muted"></span></h2>
-      <span class="state pill"></span>
+      <span class="state pill" title="Saved state (what installs currently see)"></span>
     </div>
     <p class="hint sha"></p>
+    <p class="hint">The pill shows the <strong>saved</strong> state. Fields below are a draft until you click Save.</p>
 
     <label class="switch"><input type="checkbox" class="f-enabled" /> Enabled for everyone</label>
     <div class="field"><label>Message shown when disabled</label><input type="text" class="f-message" placeholder="e.g. Paused for maintenance until 15:00 — Mayowa" /></div>
@@ -103,12 +106,10 @@
 
     <details><summary class="hint">Raw JSON</summary><textarea class="raw" spellcheck="false"></textarea><div class="row" style="margin-top:6px"><button type="button" class="btn btn-sm f-apply-raw">Apply raw JSON to form</button></div></details>
 
-    <div class="row" style="justify-content:space-between; margin-top:4px">
-      <span class="hint dirtymsg"></span>
-      <div class="row">
-        <button type="button" class="btn f-revert">Revert</button>
-        <button type="button" class="btn btn-primary f-save">Save to GitHub</button>
-      </div>
+    <div class="dirtybar dirtymsg" hidden></div>
+    <div class="row" style="justify-content:flex-end; margin-top:4px">
+      <button type="button" class="btn f-revert">Revert</button>
+      <button type="button" class="btn btn-primary f-save">Save to GitHub</button>
     </div>
   </section>
 </template>
@@ -223,7 +224,14 @@
     $(".raw", c).value = serialize(d);
     const dirty = serialize(d) !== serialize(s.orig);
     c.classList.toggle("dirty", dirty);
-    $(".dirtymsg", c).textContent = dirty ? "Unsaved changes" : "";
+    const bar = $(".dirtymsg", c);
+    if (dirty) {
+      const sum = summarize(s.orig, d);
+      const danger = /DISABLE all|minVersion/.test(sum);
+      bar.className = `dirtybar dirtymsg${danger ? " danger" : ""}`;
+      bar.textContent = `Unsaved: ${sum}${danger ? " — this affects every install." : ""} Nothing changes until you click Save.`;
+      bar.hidden = false;
+    } else bar.hidden = true;
     $(".f-save", c).disabled = !dirty;
     $(".f-revert", c).disabled = !dirty;
   }
@@ -273,6 +281,16 @@
     if (!t) { $("#tokenCard").hidden = false; banner("warn", "Set a GitHub token first (top right) — needed to write to the repo."); return; }
     const s = state[ext.slug];
     readForm(ext);
+    const summary = summarize(s.orig, s.doc);
+    if (/DISABLE all/.test(summary)) {
+      const allowed = Object.entries(s.doc.users).filter(([, v]) => v.enabled === true).map(([k]) => k);
+      const ok = confirm(`This will DISABLE ${ext.name} for EVERY install${allowed.length ? ` except: ${allowed.join(", ")}` : ""}.\n\nMessage users will see: "${s.doc.message || "(none)"}"\n\nContinue?`);
+      if (!ok) return;
+    }
+    if (/minVersion/.test(summary) && s.doc.minVersion && s.latest && cmpVer(s.doc.minVersion, s.latest) > 0) {
+      banner("err", `Minimum version ${esc(s.doc.minVersion)} is higher than the latest published ${esc(s.latest)} — that would block everyone. Not saved.`);
+      return;
+    }
     const body = serialize(s.doc);
     $(".f-save", s.card).disabled = true;
     try {
