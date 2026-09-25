@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Extension control — LTL_Viewer</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --text:#1d1d1f; --muted:#6b7280; --border:#e3e5e8; --primary:#1a73e8;
+          --good:#1b7f3b; --good-bg:#e6f4ea; --warn:#b45309; --warn-bg:#fff4e5; --bad:#b91c1c; --bad-bg:#fde8e8; --r:8px; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#15171a; --panel:#1f2226; --text:#e8eaed; --muted:#9aa0a6; --border:#33373d;
+          --good-bg:#123a20; --warn-bg:#3d2a0a; --bad-bg:#4a1414; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--text); background:var(--bg); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; } h2 { font-size:14px; margin:0 0 8px; }
+  main { padding:16px 20px; display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(460px,1fr)); align-items:start; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; display:grid; gap:10px; }
+  .card.wide { grid-column: 1 / -1; }
+  .muted { color:var(--muted); } .hint { color:var(--muted); font-size:12px; margin:0; }
+  code { font-size:12px; background:var(--bg); padding:1px 5px; border-radius:4px; }
+  .btn { border:1px solid var(--border); background:var(--panel); color:var(--text); padding:6px 12px; border-radius:var(--r); cursor:pointer; font:inherit; }
+  .btn:hover { border-color:var(--primary); } .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .btn-danger { color:var(--bad); border-color:var(--bad); } .btn-danger:hover { background:var(--bad-bg); }
+  .btn-sm { padding:3px 9px; font-size:12px; }
+  input[type=text], input[type=password], select, textarea { font:inherit; padding:6px 10px; border:1px solid var(--border); border-radius:var(--r); background:var(--bg); color:var(--text); width:100%; }
+  textarea { font:12px/1.4 ui-monospace,Consolas,monospace; min-height:220px; resize:vertical; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .field { display:grid; gap:4px; } .field > label { font-size:12px; color:var(--muted); }
+  .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+  .pill-good { background:var(--good-bg); color:var(--good); } .pill-bad { background:var(--bad-bg); color:var(--bad); } .pill-warn { background:var(--warn-bg); color:var(--warn); } .pill-muted { background:var(--border); color:var(--muted); }
+  .switch { display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; }
+  .switch input { width:18px; height:18px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.msg { color:var(--muted); max-width:340px; }
+  .banner { padding:10px 14px; border-radius:var(--r); border:1px solid var(--border); background:var(--panel); }
+  .banner.ok { background:var(--good-bg); color:var(--good); border-color:transparent; }
+  .banner.err { background:var(--bad-bg); color:var(--bad); border-color:transparent; }
+  .banner.warn { background:var(--warn-bg); color:var(--warn); border-color:transparent; }
+  [hidden] { display:none !important; }
+  .dirty { outline:2px solid var(--warn); outline-offset:2px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Extension control</h1>
+    <p class="hint">Edits <code>control.json</code> on the <code>updates</code> branch. Installs re-read it every 15 min and before each run.</p>
+  </div>
+  <div class="row">
+    <span id="who" class="pill pill-muted">not signed in</span>
+    <button id="btnToken" class="btn">Set token…</button>
+    <button id="btnReload" class="btn">Reload</button>
+  </div>
+</header>
+
+<div id="banner" class="banner" hidden style="margin:12px 20px 0"></div>
+
+<section id="tokenCard" class="card" style="margin:12px 20px 0" hidden>
+  <h2>GitHub token</h2>
+  <p class="hint">Needed only to <strong>save</strong>. A fine-grained personal access token for <code>sparrrow1011/LTL_Viewer</code> with <em>Contents: Read and write</em>. Stored in this browser only (localStorage). <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create one</a>.</p>
+  <div class="row">
+    <input id="token" type="password" placeholder="github_pat_…" autocomplete="off" style="max-width:520px" />
+    <button id="btnSaveToken" class="btn btn-primary">Save token</button>
+    <button id="btnClearToken" class="btn">Forget</button>
+  </div>
+</section>
+
+<main id="main"></main>
+
+<template id="tplExt">
+  <section class="card ext">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0"><span class="name"></span> <span class="ver pill pill-muted"></span></h2>
+      <span class="state pill"></span>
+    </div>
+    <p class="hint sha"></p>
+
+    <label class="switch"><input type="checkbox" class="f-enabled" /> Enabled for everyone</label>
+    <div class="field"><label>Message shown when disabled</label><input type="text" class="f-message" placeholder="e.g. Paused for maintenance until 15:00 — Mayowa" /></div>
+    <div class="field"><label>Notice shown while enabled (optional)</label><input type="text" class="f-notice" placeholder="e.g. New version out — check for updates" /></div>
+    <div class="field"><label>Minimum version allowed</label><div class="row"><input type="text" class="f-minver" style="max-width:140px" /><span class="hint latest"></span><button type="button" class="btn btn-sm f-minver-latest">Use latest</button></div></div>
+
+    <h2 style="margin-top:6px">Per-user overrides <span class="hint">(SMC alias, lowercase)</span></h2>
+    <table class="users"><thead><tr><th>Alias</th><th>State</th><th>Message</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="row">
+      <input type="text" class="f-newuser" placeholder="alias" style="max-width:160px" />
+      <input type="text" class="f-newuser-msg" placeholder="message (optional)" style="max-width:320px" />
+      <button type="button" class="btn btn-sm btn-danger f-adduser-off">Disable user</button>
+      <button type="button" class="btn btn-sm f-adduser-on">Allow user (override global off)</button>
+    </div>
+
+    <h2 style="margin-top:6px">Per-install overrides <span class="hint">(install ID from the user's Settings → This install)</span></h2>
+    <table class="installs"><thead><tr><th>Install ID</th><th>State</th><th>Message</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="row">
+      <input type="text" class="f-newinst" placeholder="install id" style="max-width:200px" />
+      <input type="text" class="f-newinst-msg" placeholder="message (optional)" style="max-width:320px" />
+      <button type="button" class="btn btn-sm btn-danger f-addinst-off">Disable install</button>
+      <button type="button" class="btn btn-sm f-addinst-on">Allow install</button>
+    </div>
+
+    <details><summary class="hint">Raw JSON</summary><textarea class="raw" spellcheck="false"></textarea><div class="row" style="margin-top:6px"><button type="button" class="btn btn-sm f-apply-raw">Apply raw JSON to form</button></div></details>
+
+    <div class="row" style="justify-content:space-between; margin-top:4px">
+      <span class="hint dirtymsg"></span>
+      <div class="row">
+        <button type="button" class="btn f-revert">Revert</button>
+        <button type="button" class="btn btn-primary f-save">Save to GitHub</button>
+      </div>
+    </div>
+  </section>
+</template>
+
+<script>
+(() => {
+  "use strict";
+  const OWNER = "sparrrow1011", REPO = "LTL_Viewer", BRANCH = "updates";
+  const EXTS = [
+    { slug: "lobby-sweeper", name: "Lobby Sweeper" },
+    { slug: "ms-viewer", name: "MS Viewer" },
+  ];
+  const RAW = (p) => `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${p}?t=${Date.now()}`;
+  const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents`;
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const token = () => localStorage.getItem("ltl.admin.token") || "";
+
+  function banner(kind, html) {
+    const b = $("#banner");
+    if (!html) { b.hidden = true; return; }
+    b.className = `banner ${kind}`; b.innerHTML = html; b.hidden = false;
+  }
+
+  // ── auth ────────────────────────────────────────────────────────────────
+  async function whoami() {
+    const t = token();
+    const pill = $("#who");
+    if (!t) { pill.className = "pill pill-muted"; pill.textContent = "read-only (no token)"; return null; }
+    try {
+      const r = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json" } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const u = await r.json();
+      pill.className = "pill pill-good"; pill.textContent = `signed in as ${u.login}`;
+      return u.login;
+    } catch (e) {
+      pill.className = "pill pill-bad"; pill.textContent = `token rejected (${e.message})`;
+      return null;
+    }
+  }
+  $("#btnToken").onclick = () => { $("#tokenCard").hidden = !$("#tokenCard").hidden; $("#token").value = token(); };
+  $("#btnSaveToken").onclick = async () => { localStorage.setItem("ltl.admin.token", $("#token").value.trim()); $("#tokenCard").hidden = true; await whoami(); };
+  $("#btnClearToken").onclick = async () => { localStorage.removeItem("ltl.admin.token"); $("#token").value = ""; await whoami(); };
+  $("#btnReload").onclick = () => loadAll();
+
+  // ── model ───────────────────────────────────────────────────────────────
+  const state = {}; // slug -> { doc, orig, sha, latest, card }
+
+  const normalize = (d) => ({
+    _readme: d._readme,
+    enabled: d.enabled !== false,
+    message: d.message || "",
+    notice: d.notice || "",
+    minVersion: d.minVersion || "",
+    users: d.users || {},
+    installs: d.installs || {},
+  });
+  const serialize = (d) => {
+    const out = {};
+    if (d._readme) out._readme = d._readme;
+    out.enabled = d.enabled; out.message = d.message; out.notice = d.notice; out.minVersion = d.minVersion;
+    out.users = d.users; out.installs = d.installs;
+    return JSON.stringify(out, null, 2) + "\n";
+  };
+
+  async function loadOne(ext) {
+    const [ctlRes, updRes] = await Promise.all([fetch(RAW(`${ext.slug}/control.json`)), fetch(RAW(`${ext.slug}/updates.json`))]);
+    if (!ctlRes.ok) throw new Error(`control.json HTTP ${ctlRes.status} — has the sign workflow run for ${ext.name} yet?`);
+    const doc = normalize(await ctlRes.json());
+    let latest = "";
+    if (updRes.ok) {
+      const u = await updRes.json();
+      const vs = Object.values(u.addons || {}).flatMap((a) => (a.updates || []).map((x) => x.version));
+      latest = vs.sort((a, b) => cmpVer(a, b)).pop() || "";
+    }
+    // sha needed for the write; requires the API (unauthenticated is fine for public repos).
+    let sha = null;
+    try {
+      const meta = await fetch(`${API}/${ext.slug}/control.json?ref=${BRANCH}`, { headers: { Accept: "application/vnd.github+json", ...(token() ? { Authorization: `Bearer ${token()}` } : {}) } });
+      if (meta.ok) sha = (await meta.json()).sha;
+    } catch (_) { /* save will re-fetch */ }
+    return { doc, orig: JSON.parse(JSON.stringify(doc)), sha, latest };
+  }
+  const cmpVer = (a, b) => { const pa = a.split(".").map(Number), pb = b.split(".").map(Number); for (let i = 0; i < Math.max(pa.length, pb.length); i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; } return 0; };
+
+  // ── render ──────────────────────────────────────────────────────────────
+  function render(ext) {
+    const s = state[ext.slug];
+    const c = s.card, d = s.doc;
+    $(".name", c).textContent = ext.name;
+    $(".ver", c).textContent = s.latest ? `latest ${s.latest}` : "";
+    $(".latest", c).textContent = s.latest ? `latest published: ${s.latest}` : "";
+    $(".sha", c).innerHTML = `<code>${ext.slug}/control.json</code>${s.sha ? ` · sha ${s.sha.slice(0, 7)}` : ""}`;
+    $(".f-enabled", c).checked = d.enabled;
+    $(".f-message", c).value = d.message;
+    $(".f-notice", c).value = d.notice;
+    $(".f-minver", c).value = d.minVersion;
+    const st = $(".state", c);
+    const offUsers = Object.values(d.users).filter((u) => u.enabled === false).length;
+    const offInst = Object.values(d.installs).filter((u) => u.enabled === false).length;
+    if (!d.enabled) { st.className = "pill pill-bad"; st.textContent = "DISABLED for everyone"; }
+    else if (offUsers || offInst) { st.className = "pill pill-warn"; st.textContent = `enabled · ${offUsers} user(s), ${offInst} install(s) disabled`; }
+    else { st.className = "pill pill-good"; st.textContent = "enabled for everyone"; }
+
+    const rows = (map, kind) => Object.entries(map).map(([k, v]) => `
+      <tr><td><code>${esc(k)}</code></td>
+      <td>${v.enabled === false ? '<span class="pill pill-bad">disabled</span>' : '<span class="pill pill-good">allowed</span>'}</td>
+      <td class="msg">${esc(v.message || "")}</td>
+      <td><button type="button" class="btn btn-sm" data-rm="${kind}" data-key="${esc(k)}">Remove</button></td></tr>`).join("");
+    $(".users tbody", c).innerHTML = rows(d.users, "users") || '<tr><td colspan="4" class="muted">none</td></tr>';
+    $(".installs tbody", c).innerHTML = rows(d.installs, "installs") || '<tr><td colspan="4" class="muted">none</td></tr>';
+    $(".raw", c).value = serialize(d);
+    const dirty = serialize(d) !== serialize(s.orig);
+    c.classList.toggle("dirty", dirty);
+    $(".dirtymsg", c).textContent = dirty ? "Unsaved changes" : "";
+    $(".f-save", c).disabled = !dirty;
+    $(".f-revert", c).disabled = !dirty;
+  }
+
+  function readForm(ext) {
+    const s = state[ext.slug], c = s.card, d = s.doc;
+    d.enabled = $(".f-enabled", c).checked;
+    d.message = $(".f-message", c).value.trim();
+    d.notice = $(".f-notice", c).value.trim();
+    d.minVersion = $(".f-minver", c).value.trim();
+  }
+
+  function wire(ext) {
+    const s = state[ext.slug], c = s.card;
+    for (const sel of [".f-enabled", ".f-message", ".f-notice", ".f-minver"]) $(sel, c).addEventListener("input", () => { readForm(ext); render(ext); });
+    $(".f-minver-latest", c).onclick = () => { s.doc.minVersion = s.latest; render(ext); };
+    const add = (kind, keySel, msgSel, enabled) => () => {
+      const key = $(keySel, c).value.trim().toLowerCase();
+      if (!key) return;
+      const entry = { enabled };
+      const m = $(msgSel, c).value.trim(); if (m) entry.message = m;
+      s.doc[kind][key] = entry;
+      $(keySel, c).value = ""; $(msgSel, c).value = "";
+      render(ext);
+    };
+    $(".f-adduser-off", c).onclick = add("users", ".f-newuser", ".f-newuser-msg", false);
+    $(".f-adduser-on", c).onclick = add("users", ".f-newuser", ".f-newuser-msg", true);
+    $(".f-addinst-off", c).onclick = add("installs", ".f-newinst", ".f-newinst-msg", false);
+    $(".f-addinst-on", c).onclick = add("installs", ".f-newinst", ".f-newinst-msg", true);
+    c.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-rm]");
+      if (!b) return;
+      delete s.doc[b.dataset.rm][b.dataset.key];
+      render(ext);
+    });
+    $(".f-apply-raw", c).onclick = () => {
+      try { s.doc = normalize(JSON.parse($(".raw", c).value)); render(ext); banner(); }
+      catch (e) { banner("err", `Raw JSON invalid: ${esc(e.message)}`); }
+    };
+    $(".f-revert", c).onclick = () => { s.doc = JSON.parse(JSON.stringify(s.orig)); render(ext); };
+    $(".f-save", c).onclick = () => save(ext);
+  }
+
+  // ── save (GitHub contents API, PUT with sha) ────────────────────────────
+  async function save(ext) {
+    const t = token();
+    if (!t) { $("#tokenCard").hidden = false; banner("warn", "Set a GitHub token first (top right) — needed to write to the repo."); return; }
+    const s = state[ext.slug];
+    readForm(ext);
+    const body = serialize(s.doc);
+    $(".f-save", s.card).disabled = true;
+    try {
+      // Always fetch the current sha right before writing (someone else may have saved).
+      const meta = await fetch(`${API}/${ext.slug}/control.json?ref=${BRANCH}`, { headers: { Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json" } });
+      if (!meta.ok) throw new Error(`read sha: HTTP ${meta.status}`);
+      const sha = (await meta.json()).sha;
+      const summary = summarize(s.orig, s.doc);
+      const r = await fetch(`${API}/${ext.slug}/control.json`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+        body: JSON.stringify({ message: `${ext.slug} control: ${summary}`, content: btoa(unescape(encodeURIComponent(body))), sha, branch: BRANCH }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      const out = await r.json();
+      s.sha = out.content.sha; s.orig = JSON.parse(JSON.stringify(s.doc));
+      render(ext);
+      banner("ok", `${ext.name} saved (${esc(summary)}). Installs pick it up within 15 minutes, or on their next Run / Re-check.`);
+    } catch (e) {
+      banner("err", `Save failed for ${ext.name}: ${esc(e.message)}`);
+      render(ext);
+    }
+  }
+  function summarize(a, b) {
+    const parts = [];
+    if (a.enabled !== b.enabled) parts.push(b.enabled ? "enable all" : "DISABLE all");
+    if (a.minVersion !== b.minVersion) parts.push(`minVersion ${b.minVersion}`);
+    if (a.notice !== b.notice) parts.push(b.notice ? "notice set" : "notice cleared");
+    if (a.message !== b.message) parts.push("message changed");
+    for (const kind of ["users", "installs"]) {
+      const ak = Object.keys(a[kind]), bk = Object.keys(b[kind]);
+      for (const k of bk) if (!ak.includes(k) || JSON.stringify(a[kind][k]) !== JSON.stringify(b[kind][k])) parts.push(`${b[kind][k].enabled === false ? "disable" : "allow"} ${k}`);
+      for (const k of ak) if (!bk.includes(k)) parts.push(`remove ${k}`);
+    }
+    return parts.join(", ") || "no-op";
+  }
+
+  // ── boot ────────────────────────────────────────────────────────────────
+  async function loadAll() {
+    banner();
+    const main = $("#main"); main.innerHTML = "";
+    await whoami();
+    for (const ext of EXTS) {
+      const card = $("#tplExt").content.firstElementChild.cloneNode(true);
+      main.appendChild(card);
+      try {
+        state[ext.slug] = { ...(await loadOne(ext)), card };
+        wire(ext); render(ext);
+      } catch (e) {
+        card.innerHTML = `<h2>${esc(ext.name)}</h2><div class="banner err">${esc(e.message)}</div>`;
+      }
+    }
+  }
+  loadAll();
+})();
+</script>
+</body>
+</html>
