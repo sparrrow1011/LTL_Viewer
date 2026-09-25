@@ -16,7 +16,19 @@ import * as fmcClient from "./fmcClient.js";
 import * as spClient from "./spClient.js";
 import * as smcClient from "./smcClient.js";
 import * as control from "./control.js";
+import * as usage from "./usage.js";
 import { log } from "./debug.js";
+
+// ── usage roster (Extension_Installs list on SharePoint) ────────────────────
+usage.init({
+  slug: "ms-viewer",
+  version: browser.runtime.getManifest().version,
+  spRequest: (r) => spClient.spRequest(r),
+  getAlias: () => smcClient.getRequester(),
+  getInstallId: () => control.getInstallId(),
+  log,
+});
+setTimeout(() => usage.report("startup"), 15_000);
 
 // ── remote control (control.json on the updates branch) ────────────────────
 control.init({
@@ -30,7 +42,10 @@ control.init({
 const CONTROL_ALARM = "ms-viewer-control";
 browser.alarms.create(CONTROL_ALARM, { periodInMinutes: Config.CONTROL_REFRESH_MINUTES });
 browser.alarms.onAlarm.addListener((a) => {
-  if (a.name === CONTROL_ALARM) control.refresh();
+  if (a.name === CONTROL_ALARM) {
+    control.refresh();
+    usage.report("tick"); // throttled to once an hour inside
+  }
 });
 
 // Actions that stay available while remotely disabled (so the overlay can
@@ -104,7 +119,10 @@ const HANDLERS = {
   // ── reads (all team-scoped via msg.team) ──
   // SharePoint records ({ "orderid|vrid": {annotation fields} }) for the
   // overlay to merge onto the SMC rows.
-  getRecords: (msg) => runsService.getRecords(teamOf(msg)),
+  getRecords: (msg) => {
+    usage.report("load", { ran: true }); // every overlay load fetches records once
+    return runsService.getRecords(teamOf(msg));
+  },
 
   // Shipper source of truth: { shippers: {shipperid: {...}}, source, path, count }.
   // Read from the team's SharePoint CSV (CST_viewer's source_of_truth_crawler.csv),

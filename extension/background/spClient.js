@@ -123,6 +123,18 @@ async function bridgeRequest({ method = "GET", path, body = null, etag = "*", ra
   return resp;
 }
 
+/**
+ * Non-throwing REST op for callers that treat failures as data (the usage
+ * roster). Returns the bridge's { ok, status, data, body, expired }.
+ */
+export async function spRequest(req) {
+  try {
+    return await bridgeRequest(req);
+  } catch (e) {
+    return { ok: false, status: (e && e.status) || 0, body: String(e && e.message ? e.message : e), expired: false, data: null };
+  }
+}
+
 // ── public API (same signatures as before) ────────────────────────────────────
 
 /** GET a REST path (relative to `_api`), following @odata.nextLink paging. */

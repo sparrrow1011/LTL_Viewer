@@ -152,6 +152,19 @@ export async function ping() {
   return true;
 }
 
+/**
+ * Generic SharePoint REST op through the bridge (sp:req). Returns the raw
+ * { ok, status, data, body, expired } so callers decide how to treat failures
+ * (used by the usage roster, which must never throw into the pipeline).
+ */
+export async function spRequest({ method = "GET", path, body = null, etag = "*" }) {
+  try {
+    return await bridge.call({ action: "sp:req", method, path, body, etag });
+  } catch (e) {
+    return { ok: false, status: e.status || 0, body: e.message, expired: !!e.expired, data: null };
+  }
+}
+
 /** Save a user-imported CSV (Settings tab). */
 export async function importCsv(text, name = "import.csv") {
   const ids = shipperIdsFromCsv(text);

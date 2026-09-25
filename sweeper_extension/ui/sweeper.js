@@ -138,8 +138,72 @@ function showTab(name) {
     b.classList.toggle("active", on);
     b.setAttribute("aria-selected", String(on));
   }
-  for (const n of ["sweep", "lobby", "settings", "log"]) $(`tab-${n}`).hidden = n !== name;
+  for (const n of ["sweep", "lobby", "settings", "log", "roster"]) $(`tab-${n}`).hidden = n !== name;
   if (name === "log") renderLog();
+  if (name === "roster" && !app.roster) loadRoster();
+}
+
+// ── installs roster (Extension_Installs SharePoint list) ───────────────────
+const ROSTER_COLUMNS = [
+  { key: "alias", label: "Alias", render: (r) => (r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>') },
+  { key: "extension", label: "Extension", render: (r) => (r.extension === "lobby-sweeper" ? "Lobby Sweeper" : r.extension === "ms-viewer" ? "MS Viewer" : esc(r.extension)) },
+  { key: "version", label: "Version" },
+  { key: "lastSeen", label: "Last seen", render: (r) => ageCell(r.lastSeen) },
+  { key: "lastRun", label: "Last run", render: (r) => ageCell(r.lastRun) },
+  { key: "runs", label: "Runs" },
+  { key: "firstSeen", label: "First used", render: (r) => (r.firstSeen ? esc(fmtTime(Date.parse(r.firstSeen))) : "") },
+  { key: "installId", label: "Install ID", render: (r) => `<code>${esc(r.installId)}</code>` },
+  { key: "browser", label: "Browser" },
+];
+app.rosterSort = { key: "lastSeen", dir: "desc" };
+
+function ageCell(iso) {
+  if (!iso) return '<span class="muted">—</span>';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return esc(iso);
+  const h = (Date.now() - t) / 3_600_000;
+  const cls = h < 24 ? "pill-good" : h < 24 * 7 ? "pill-warn" : "pill-muted";
+  const age = h < 1 ? `${Math.round(h * 60)} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} d ago`;
+  return `<span class="pill ${cls}" title="${esc(fmtTime(t))}">${age}</span>`;
+}
+
+async function loadRoster() {
+  $("rosterEmpty").hidden = true;
+  $("rosterStats").innerHTML = '<span class="muted">Loading from SharePoint…</span>';
+  try {
+    app.roster = await call("usageRoster");
+    $("rosterListLink").href = app.roster.listUrl;
+  } catch (e) {
+    app.roster = { rows: [], listUrl: "#" };
+    $("rosterStats").innerHTML = "";
+    banner(e.expired ? "error" : "warn", e.expired ? describeError(e, "Installs roster") : `Installs roster: ${esc(e.message)}`);
+  }
+  renderRoster();
+}
+
+function renderRoster() {
+  const all = (app.roster && app.roster.rows) || [];
+  const q = $("rosterSearch").value.trim().toLowerCase();
+  const ext = $("rosterExt").value;
+  const rows = all.filter((r) => (!ext || r.extension === ext) && (!q || ROSTER_COLUMNS.some((c) => String(r[c.key] ?? "").toLowerCase().includes(q))));
+  const day = Date.now() - 86_400_000;
+  const aliases = new Set(all.map((r) => r.alias).filter(Boolean));
+  const versions = {};
+  for (const r of all) versions[`${r.extension} ${r.version}`] = (versions[`${r.extension} ${r.version}`] || 0) + 1;
+  $("rosterStats").innerHTML = all.length
+    ? [
+        stat("Installs", all.length, `${aliases.size} known alias(es)`),
+        stat("Active 24 h", all.filter((r) => Date.parse(r.lastSeen) > day).length),
+        stat("Lobby Sweeper", all.filter((r) => r.extension === "lobby-sweeper").length),
+        stat("MS Viewer", all.filter((r) => r.extension === "ms-viewer").length),
+        ...Object.entries(versions).sort().map(([k, n]) => stat(k, n)),
+      ].join("")
+    : "";
+  $("rosterCount").textContent = all.length || "";
+  $("rosterCount").className = "count";
+  $("rosterEmpty").hidden = all.length > 0;
+  $("rosterTable").hidden = all.length === 0;
+  renderTable({ headEl: $("rosterHead"), bodyEl: $("rosterBody"), columns: ROSTER_COLUMNS, rows, sort: app.rosterSort, onSort: renderRoster });
 }
 
 // ── log tab ────────────────────────────────────────────────────────────────
@@ -822,6 +886,10 @@ async function renderControl(refresh = false) {
   const when = s.fetchedAt ? `checked ${fmtTime(s.fetchedAt)}` : "not checked yet";
   const err = s.error ? ` · last fetch error: ${esc(s.error)}` : "";
   const el = $("controlStatus");
+  const u = s.usage || {};
+  $("usageLine").textContent =
+    `First used ${u.firstSeen ? fmtTime(Date.parse(u.firstSeen)) : "—"} · last run ${u.lastRun ? fmtTime(Date.parse(u.lastRun)) : "—"} · ${u.runs || 0} run(s)` +
+    (u.lastReportAt ? ` · reported ${fmtTime(u.lastReportAt)}` : " · not reported yet");
   app.controlBlocked = !v.allowed;
   if (v.allowed) {
     el.className = "status good";
@@ -849,6 +917,18 @@ async function init() {
     else if (e.target.closest("[data-act='control-refresh']")) renderControl(true);
   });
   $("btnControlRefresh").addEventListener("click", () => renderControl(true));
+  $("btnRosterReload").addEventListener("click", loadRoster);
+  $("rosterSearch").addEventListener("input", renderRoster);
+  $("rosterExt").addEventListener("change", renderRoster);
+  $("btnUsageReport").addEventListener("click", async () => {
+    try {
+      const r = await call("usageReport");
+      banner(r.ok ? "ok" : "warn", r.ok ? "Usage reported to SharePoint." : `Usage report failed: ${esc(r.error || "unknown")}`);
+    } catch (e) {
+      banner("error", esc(e.message));
+    }
+    renderControl(false);
+  });
   const allowed = await renderControl(false);
   if (allowed && (await checkPermissions())) checkSessions(true);
 

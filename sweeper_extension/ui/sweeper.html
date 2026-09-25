@@ -49,6 +49,7 @@
     <button class="tab" role="tab" data-tab="lobby" aria-selected="false">SLA monitor <span id="lobbyCount" class="count"></span></button>
     <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
     <button class="tab" role="tab" data-tab="log" aria-selected="false">Log <span id="logCount" class="count"></span></button>
+    <button class="tab" role="tab" data-tab="roster" aria-selected="false">Installs <span id="rosterCount" class="count"></span></button>
   </nav>
 
   <!-- ── Sweep ─────────────────────────────────────────────────────────── -->
@@ -217,9 +218,11 @@
           <h2>This install</h2>
           <p id="controlIdentity" class="hint">Alias: — · Install ID: —</p>
           <div id="controlStatus" class="status">Checking…</div>
+          <p id="usageLine" class="hint"></p>
           <div class="btnrow">
             <button type="button" id="btnControlRefresh" class="btn btn-ghost">Re-check</button>
-            <span class="hint">The administrator can enable/disable installs remotely by alias or install ID; re-checked every 15 min and before each run.</span>
+            <button type="button" id="btnUsageReport" class="btn btn-ghost">Report usage now</button>
+            <span class="hint">The administrator can enable/disable installs remotely by alias or install ID (re-checked every 15 min and before each run). Usage (alias, version, first/last use, run count) is recorded in the <code>Extension_Installs</code> SharePoint list about once an hour.</span>
           </div>
         </section>
 
@@ -249,6 +252,32 @@
       <button id="btnLogClear" class="btn btn-ghost" type="button">Clear</button>
     </div>
     <pre id="logView" class="log" aria-live="polite"></pre>
+  </section>
+
+  <!-- ── Installs roster ────────────────────────────────────────────────── -->
+  <section id="tab-roster" class="panel" role="tabpanel" hidden>
+    <div class="stats" id="rosterStats"></div>
+    <div class="toolbar">
+      <input id="rosterSearch" type="search" placeholder="Search alias, install, version…" aria-label="Search installs" />
+      <select id="rosterExt" aria-label="Extension filter">
+        <option value="">Both extensions</option>
+        <option value="lobby-sweeper">Lobby Sweeper</option>
+        <option value="ms-viewer">MS Viewer</option>
+      </select>
+      <span class="spacer"></span>
+      <a id="rosterListLink" class="btn btn-ghost" target="_blank" rel="noopener" href="#">Open SharePoint list</a>
+      <button id="btnRosterReload" class="btn btn-ghost" type="button">Reload</button>
+    </div>
+    <div class="table-wrap">
+      <table id="rosterTable" class="grid">
+        <thead><tr id="rosterHead"></tr></thead>
+        <tbody id="rosterBody"></tbody>
+      </table>
+      <div id="rosterEmpty" class="empty">
+        <p><strong>No installs reported yet.</strong></p>
+        <p class="muted">Each install writes one row to the <code>Extension_Installs</code> SharePoint list on startup and about once an hour: alias, version, first/last use, run count. Use the alias or install ID in the control page to enable/disable someone.</p>
+      </div>
+    </div>
   </section>
 
   <script type="module" src="sweeper.js"></script>

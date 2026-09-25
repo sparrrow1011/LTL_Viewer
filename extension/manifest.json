@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MS Viewer",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Manual Sourcing Viewer: full-page LTL/CST manual-sourcing table, outcomes dashboard and EML generation over SMC/FMC, backed by SharePoint.",
   "browser_specific_settings": {
     "gecko": {

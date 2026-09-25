@@ -164,6 +164,54 @@
     return res.status;
   }
 
+  // ── generic REST (JSON GET + digest-authenticated writes) ─────────────────
+  // Same contract as MS Viewer's sp-bridge `sp:req`, used by the shared
+  // usage-roster module (background/usage.js) to upsert list items.
+  const JSON_HEADERS = { Accept: "application/json;odata=nometadata", "Content-Type": "application/json;odata=nometadata" };
+  let _digest = null;
+
+  async function getDigest(force = false) {
+    const now = Date.now();
+    if (!force && _digest && _digest.expiresAt - 60_000 > now) return _digest.value;
+    const res = await fetch(`${API_BASE}/contextinfo`, { method: "POST", credentials: "include", headers: JSON_HEADERS });
+    assertOnOrigin(res);
+    if (!res.ok) throw Object.assign(new Error(`contextinfo HTTP ${res.status}`), { status: res.status });
+    const data = await res.json();
+    const value = data.FormDigestValue || (data.GetContextWebInformation && data.GetContextWebInformation.FormDigestValue);
+    const timeout = data.FormDigestTimeoutSeconds || (data.GetContextWebInformation && data.GetContextWebInformation.FormDigestTimeoutSeconds) || 1800;
+    if (!value) throw new Error("contextinfo returned no FormDigestValue");
+    _digest = { value, expiresAt: now + timeout * 1000 };
+    return value;
+  }
+
+  async function restGet(path) {
+    const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+    const res = await fetch(url, { credentials: "include", cache: "no-store", headers: { Accept: JSON_HEADERS.Accept } });
+    assertOnOrigin(res);
+    const ctype = (res.headers.get("content-type") || "").toLowerCase();
+    if (res.ok && !ctype.includes("json")) throw expiredError(`non-JSON reply (${ctype || "none"})`);
+    return { ok: res.ok, status: res.status, body: res.ok ? null : (await res.text()).slice(0, 500), data: res.ok ? await res.json() : null };
+  }
+
+  async function restWrite(method, path, body, etag) {
+    const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+    const send = async (dg) => {
+      const headers = { ...JSON_HEADERS, "X-RequestDigest": dg };
+      if (method === "MERGE" || method === "DELETE") {
+        headers["X-HTTP-Method"] = method;
+        headers["IF-MATCH"] = etag || "*";
+      }
+      return fetch(url, { method: "POST", credentials: "include", headers, body: body != null ? JSON.stringify(body) : undefined });
+    };
+    let res = await send(await getDigest());
+    if (res.status === 403) res = await send(await getDigest(true)); // stale digest → refresh once
+    assertOnOrigin(res);
+    if (!res.ok) return { ok: false, status: res.status, body: (await res.text()).slice(0, 500), data: null };
+    if (res.status === 204) return { ok: true, status: 204, data: null };
+    const text = await res.text();
+    return { ok: true, status: res.status, data: text ? JSON.parse(text) : null };
+  }
+
   const takeTrace = () => {
     const t = trace;
     trace = [];
@@ -202,6 +250,13 @@
     if (msg.action === "sp:search") {
       return searchFile(msg.filename)
         .then((paths) => ok({ paths }))
+        .catch(fail);
+    }
+    if (msg.action === "sp:req") {
+      const { method = "GET", path, body = null, etag = "*" } = msg;
+      dlog(`${method} ${path}`);
+      return (method === "GET" ? restGet(path) : restWrite(method, path, body, etag))
+        .then((r) => ({ bridge: true, trace: takeTrace(), ...r }))
         .catch(fail);
     }
     return fail(new Error(`Unknown sp action: ${msg.action}`));

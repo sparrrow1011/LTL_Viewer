@@ -12,6 +12,7 @@ import * as sweeper from "./sweeper.js";
 import * as shippers from "./shippers.js";
 import * as smc from "./smcClient.js";
 import * as control from "./control.js";
+import * as usage from "./usage.js";
 import { log } from "./debug.js";
 
 const ALARM = "lobby-sweeper-cycle";
@@ -28,6 +29,19 @@ control.init({
   log,
 });
 browser.alarms.create(CONTROL_ALARM, { periodInMinutes: Config.CONTROL_REFRESH_MINUTES });
+
+// ── usage roster (Extension_Installs list on SharePoint) ────────────────────
+usage.init({
+  slug: "lobby-sweeper",
+  version: browser.runtime.getManifest().version,
+  spRequest: (r) => shippers.spRequest(r),
+  getAlias: () => smc.getRequester(),
+  getInstallId: () => control.getInstallId(),
+  log,
+});
+// First report shortly after start (gives the SharePoint tab a moment), then
+// piggy-backs on the control alarm (throttled inside report()).
+setTimeout(() => usage.report("startup"), 15_000);
 
 // ── scheduler ──────────────────────────────────────────────────────────────
 
@@ -62,6 +76,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
     // even when nothing else is happening; badge reflects it.
     const v = await control.refresh();
     if (!v.allowed) await sweeper.updateBadge().catch(() => {});
+    usage.report("tick"); // throttled to once an hour inside
     return;
   }
   if (alarm.name !== ALARM && alarm.name !== RETRY_ALARM) return;
@@ -93,6 +108,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
     const out = await sweeper.runCycle("alarm");
     const outcome = out.errors.length ? `errors: ${out.errors.join(" · ")}` : "ok";
     log.info("pipeline", `⏰ scheduled cycle done — ${outcome}`);
+    usage.report("scheduled run", { ran: true });
     await noteScheduler({ lastOutcome: outcome, lastOutcomeAt: Date.now(), lastRunStartedAt: firedAt });
   } catch (e) {
     log.error("scheduler", e);
@@ -128,6 +144,7 @@ async function startJob(job, fn) {
   if (sweeper.isRunning()) throw new Error(`Already running: ${sweeper.isRunning()}`);
   await control.assertAllowed(job); // throws with .controlBlocked when remotely disabled
   const p = fn();
+  p.then(() => usage.report("run", { ran: true }), () => {});
   p.catch(async (e) => {
     log.error(`job:${job}`, e);
     await store.patchState({
@@ -221,7 +238,37 @@ const HANDLERS = {
   // Remote control: identity + verdict for the Settings/banner; force re-read.
   controlStatus: async (msg) => {
     if (msg.refresh) await control.refresh();
-    return control.status();
+    return { ...(await control.status()), usage: await usage.local() };
+  },
+  // Usage roster: force a report now (Settings button).
+  usageReport: () => usage.report("manual", { force: true }),
+  // Usage roster: all installs (both extensions) from the SharePoint list.
+  usageRoster: async () => {
+    const r = await shippers.spRequest({
+      method: "GET",
+      path: `/web/lists/getbytitle('Extension_Installs')/items?$select=Id,Title,Extension,Alias,Version,FirstSeen,LastSeen,LastRun,Runs,Browser&$top=2000`,
+    });
+    if (!r.ok) {
+      const err = new Error(r.status === 404 ? "No Extension_Installs list yet — nobody has reported." : `SharePoint HTTP ${r.status}: ${r.body || ""}`);
+      err.expired = !!r.expired;
+      throw err;
+    }
+    const rows = (r.data && r.data.value) || [];
+    return {
+      rows: rows.map((x) => ({
+        id: x.Id,
+        extension: x.Extension || "",
+        installId: String(x.Title || "").split("|")[1] || "",
+        alias: x.Alias || "",
+        version: x.Version || "",
+        firstSeen: x.FirstSeen || "",
+        lastSeen: x.LastSeen || "",
+        lastRun: x.LastRun || "",
+        runs: Number(x.Runs || 0),
+        browser: x.Browser || "",
+      })),
+      listUrl: `${Config.SP_ORIGIN}/sites/AmazonFreightOperations/Lists/Extension_Installs`,
+    };
   },
 
   clearAlertLog: async () => {
