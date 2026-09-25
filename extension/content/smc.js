@@ -143,6 +143,31 @@
     return res.json();
   }
 
+  // ── shipper price (revenue) ─────────────────────────────────────────────────
+  // Port of CST_viewer scripts/smc_update.py _extract_revenue(): prefer the
+  // LINE_HAUL line, else the first priced line.
+  function pricingLines(order) {
+    return ((order.shipperPricing || {}).pricing) || [];
+  }
+  function preferredLine(order) {
+    const lines = pricingLines(order);
+    if (!lines.length) return null;
+    return lines.find((p) => p && p.type === "LINE_HAUL") || lines[0];
+  }
+  function extractRevenue(order) {
+    const line = preferredLine(order);
+    const v = line && line.price ? line.price.value : null;
+    const n = v == null ? NaN : parseFloat(v);
+    return Number.isNaN(n) ? null : n;
+  }
+  // Currency varies by channel (GBP/EUR), so read it rather than assuming.
+  function extractRevenueCurrency(order) {
+    const line = preferredLine(order);
+    const p = (line && line.price) || {};
+    const c = p.currencyCode || p.currency || p.currencyUnit || null;
+    return c ? String(c).trim().toUpperCase() : null;
+  }
+
   // ── order -> one row per VRID ───────────────────────────────────────────────
   function orderToRows(order) {
     const stops = order.stops || [];
@@ -181,6 +206,10 @@
       execution_status: order.executionStatus,
       vehicle_execution_status: order.vrExecutionStatus || order.executionStatus,
       isa: stop2.appointmentId,
+      // Shipper price — what the margin calculator rates the carrier quote
+      // against. Ports CST_viewer smc_update.py _extract_revenue().
+      revenue: extractRevenue(order),
+      revenue_currency: extractRevenueCurrency(order),
     };
 
     const vrids = (order.vehicleRunIds || []).filter(Boolean);

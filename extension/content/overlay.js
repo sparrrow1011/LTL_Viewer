@@ -884,7 +884,7 @@
     "shippername", "shipperid", "shipper_group", "shipper_ref",
     "orig_country", "dest_country", "origin", "dest", "lane",
     "origin_code", "dest_code", "orig_node", "dest_node",
-    "equipment_type", "freight_type", "isa", "revenue",
+    "equipment_type", "freight_type", "isa", "revenue", "revenue_currency",
   ];
 
   function widenWindow(win, days) {
@@ -1414,10 +1414,16 @@
         }
       }
       if (row._lookup) {
-        // Read-only: show saved state as text (if a record exists), no controls.
+        // Read-only: saved state as text, no controls that write. The margin
+        // calculator is fine here — it only does arithmetic.
         const emailTxt = truthy(row.email_sent) ? "Sent" : row.email_generated_at ? "Pending" : "";
         tr.appendChild(el("td", { text: emailTxt, class: "ltl-muted" }));
-        tr.appendChild(el("td", { text: truthy(row.is_manual_source) ? "Yes" : "", class: "ltl-muted" }));
+        tr.appendChild(
+          el("td", { class: "ltl-muted" }, [
+            el("span", { text: truthy(row.is_manual_source) ? "Yes " : "" }),
+            calcButton(row),
+          ])
+        );
       } else {
         tr.appendChild(el("td", {}, [emailCell(row)]));
         tr.appendChild(el("td", {}, [manualSourceCell(row)]));
@@ -1493,12 +1499,117 @@
 
   // ── manual-source cell (ports table.js toggle-manual-source) ──────────────
   function manualSourceCell(row) {
-    return el("input", {
-      type: "checkbox",
-      ...(row.is_manual_source ? { checked: "checked" } : {}),
-      "data-vrid": row.vrid,
-      onchange: (e) => onManualSourceToggle(e, row),
+    // Checkbox + the margin calculator button (ports table.js's per-row
+    // `.open-calculator`, which sat in this same cell).
+    const wrap = el("div", { class: "ltl-ms-cell" });
+    wrap.appendChild(
+      el("input", {
+        type: "checkbox",
+        ...(row.is_manual_source ? { checked: "checked" } : {}),
+        "data-vrid": row.vrid,
+        onchange: (e) => onManualSourceToggle(e, row),
+      })
+    );
+    wrap.appendChild(calcButton(row));
+    return wrap;
+  }
+
+  // ── margin calculator ─────────────────────────────────────────────────────
+  // Rates a carrier quote against the shipper price for the run. Ports the
+  // Margin Calculator modal from the Flask manual-sourcing page verbatim:
+  // same formula, thresholds and approval wording.
+  function calcButton(row) {
+    const known = Number.isFinite(Number(row.revenue)) && Number(row.revenue) > 0;
+    const b = el("button", {
+      type: "button",
+      class: "ltl-calc-btn",
+      text: "🖩",
+      title: known
+        ? `Margin calculator (shipper price ${fmtMoney(row.revenue, row.revenue_currency)})`
+        : "Margin calculator (no shipper price on this run — enter it manually)",
     });
+    b.addEventListener("click", () => openMarginCalculator(row));
+    return b;
+  }
+
+  function fmtMoney(v, currency) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    const amount = n.toFixed(2);
+    return currency ? `${amount} ${currency}` : amount;
+  }
+
+  // Formula (from the Flask page's calculateMargin): how far the carrier price
+  // sits ABOVE the shipper price. Positive = we'd pay more than we earn.
+  //   (cost - revenue) / revenue * 100
+  // NOTE: the original modal captioned this "(Revenue - Cost) / Revenue × 100",
+  // which contradicts its own code and thresholds (>50% needing L5 approval only
+  // makes sense as an overspend). The caption was the bug; the maths is ported
+  // unchanged and the caption now matches it.
+  function marginOf(revenue, cost) {
+    if (!revenue) return null;
+    return ((cost - revenue) / revenue) * 100;
+  }
+
+  // Thresholds + wording ported verbatim.
+  function marginVerdict(margin) {
+    if (margin > 50) {
+      return { kind: "bad", text: "High Margin — Only a L5 can approve this margin" };
+    }
+    if (margin >= 30 && margin <= 50) {
+      return { kind: "warn", text: "Moderate Margin — Please contact a L4 to approve this margin" };
+    }
+    return { kind: "good", text: "Good Margin — You can approve this margin" };
+  }
+
+  function openMarginCalculator(row) {
+    const cur = row.revenue_currency || "";
+    const modal = root.querySelector("#ltl-calc");
+    const rev = root.querySelector("#ltl-calc-rev");
+    const cost = root.querySelector("#ltl-calc-cost");
+    // Context line so it's obvious which run is being rated.
+    root.querySelector("#ltl-calc-sub").textContent =
+      [row.vrid ? `VRID ${row.vrid}` : "", row.shippername || "", row.lane || ""].filter(Boolean).join(" · ");
+    root.querySelectorAll(".ltl-calc-cur").forEach((n) => (n.textContent = cur || ""));
+    rev.value = Number.isFinite(Number(row.revenue)) && Number(row.revenue) > 0 ? Number(row.revenue) : "";
+    cost.value = "";
+    modal.classList.add("ltl-open");
+    renderMargin();
+    cost.focus(); // revenue is pre-filled; the carrier quote is what's typed
+  }
+
+  function closeMarginCalculator() {
+    root.querySelector("#ltl-calc")?.classList.remove("ltl-open");
+  }
+
+  function renderMargin() {
+    const revenue = parseFloat(root.querySelector("#ltl-calc-rev").value) || 0;
+    const cost = parseFloat(root.querySelector("#ltl-calc-cost").value) || 0;
+    const out = root.querySelector("#ltl-calc-result");
+    const status = root.querySelector("#ltl-calc-status");
+    const bar = root.querySelector("#ltl-calc-bar");
+    const breakdown = root.querySelector("#ltl-calc-breakdown");
+
+    const margin = marginOf(revenue, cost);
+    if (margin == null) {
+      out.textContent = "---%";
+      out.className = "ltl-calc-result";
+      status.textContent = "";
+      status.className = "ltl-calc-status";
+      bar.style.width = "0%";
+      bar.className = "ltl-calc-bar";
+      breakdown.textContent = "Enter a shipper price to calculate";
+      return;
+    }
+    const rounded = Math.round(margin * 100) / 100;
+    const verdict = marginVerdict(margin);
+    out.textContent = `${rounded}%`;
+    out.className = `ltl-calc-result ltl-calc-${verdict.kind}`;
+    status.textContent = verdict.text;
+    status.className = `ltl-calc-status ltl-calc-${verdict.kind}`;
+    bar.className = `ltl-calc-bar ltl-calc-bar-${verdict.kind}`;
+    bar.style.width = `${Math.min(Math.max(margin, 0), 100)}%`;
+    breakdown.textContent = `(${cost} − ${revenue}) / ${revenue} × 100 = ${rounded}%`;
   }
 
   async function onManualSourceToggle(e, row) {
@@ -2243,6 +2354,38 @@
           <div id="ltl-pipe-actions" class="ltl-pipe-actions"></div>
         </div>
       </div>
+      <div id="ltl-calc" class="ltl-calc">
+        <div class="ltl-calc-card" role="dialog" aria-modal="true" aria-labelledby="ltl-calc-h">
+          <div class="ltl-calc-head">
+            <div>
+              <h3 id="ltl-calc-h">🖩 Margin Calculator</h3>
+              <div id="ltl-calc-sub" class="ltl-calc-sub"></div>
+            </div>
+            <button type="button" id="ltl-calc-close" class="ltl-calc-close" title="Close (Esc)">×</button>
+          </div>
+          <div class="ltl-calc-body">
+            <label class="ltl-calc-field">
+              <span>Shipper Price <span class="ltl-calc-cur"></span></span>
+              <input type="number" id="ltl-calc-rev" step="0.01" min="0" placeholder="Enter shipper price" />
+            </label>
+            <label class="ltl-calc-field">
+              <span>Carrier Price <span class="ltl-calc-cur"></span></span>
+              <input type="number" id="ltl-calc-cost" step="0.01" min="0" placeholder="Enter carrier quote" />
+            </label>
+            <div class="ltl-calc-out">
+              <div class="ltl-calc-lbl">Margin Percentage</div>
+              <div id="ltl-calc-result" class="ltl-calc-result">---%</div>
+              <div id="ltl-calc-status" class="ltl-calc-status"></div>
+              <div class="ltl-calc-scale"><span>0%</span><span>50%</span><span>100%</span></div>
+              <div class="ltl-calc-track"><div id="ltl-calc-bar" class="ltl-calc-bar"></div></div>
+            </div>
+            <div class="ltl-calc-formula">
+              <strong>Formula:</strong> (Carrier Price − Shipper Price) / Shipper Price × 100
+              <div id="ltl-calc-breakdown" class="ltl-calc-breakdown">Enter values to see calculation</div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="ltl-footer" class="ltl-footer">
         <span id="ltl-count">0 rows</span>
         <span id="ltl-window"></span>
@@ -2281,6 +2424,16 @@
       b.addEventListener("click", () => setTheme(b.dataset.mode))
     );
     applyTheme();
+    // Margin calculator: live recalculation, close on ×, backdrop or Esc.
+    root.querySelector("#ltl-calc-rev").addEventListener("input", renderMargin);
+    root.querySelector("#ltl-calc-cost").addEventListener("input", renderMargin);
+    root.querySelector("#ltl-calc-close").addEventListener("click", closeMarginCalculator);
+    root.querySelector("#ltl-calc").addEventListener("click", (e) => {
+      if (e.target.id === "ltl-calc") closeMarginCalculator(); // backdrop only
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && root.querySelector("#ltl-calc.ltl-open")) closeMarginCalculator();
+    });
     root.querySelector("#ltl-auto").addEventListener("change", (e) => setAuto(e.target.value));
     root.querySelector("#ltl-apply").addEventListener("click", fetchData);
     root.querySelector("#ltl-clear").addEventListener("click", () => {
