@@ -1,0 +1,17 @@
+{
+  "addons": {
+    "ltl-viewer-overlay@internal": {
+      "updates": [
+        {
+          "version": "0.3.5",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/ms-viewer-0.3.5.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
