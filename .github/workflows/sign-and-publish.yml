@@ -113,10 +113,25 @@ jobs:
         env:
           WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
           WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        shell: bash
         run: |
-          test -n "$WEB_EXT_API_KEY" || { echo "::error::WEB_EXT_API_KEY secret missing"; exit 1; }
+          test -n "$WEB_EXT_API_KEY" || { echo "::error::WEB_EXT_API_KEY secret missing (repo → Settings → Secrets → Actions)"; exit 1; }
+          test -n "$WEB_EXT_API_SECRET" || { echo "::error::WEB_EXT_API_SECRET secret missing"; exit 1; }
+          echo "key issuer: ${WEB_EXT_API_KEY%%:*}:… (len ${#WEB_EXT_API_KEY}), secret len ${#WEB_EXT_API_SECRET}"
+          set +e
           npx --yes web-ext@8 sign --source-dir "${{ matrix.dir }}" --artifacts-dir out --channel unlisted \
-            --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid"
+            --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid" 2>&1 | tee sign.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            if grep -qiE "version.*(already exists|already been uploaded|duplicate)" sign.log; then
+              # Signed earlier (e.g. a manual local build). Fetch that signed file from AMO instead.
+              echo "::notice::version ${{ env.version }} already signed on AMO — downloading the existing signed file"
+              node .github/scripts/amo-download.mjs "${{ matrix.dir }}" out
+            else
+              echo "::error::AMO signing failed — see log above"; exit "$rc"
+            fi
+          fi
           ls -la out
 
       - name: Checkout updates branch
