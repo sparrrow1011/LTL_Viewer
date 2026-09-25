@@ -77,3 +77,5 @@ npx web-ext build --source-dir . --overwrite-dest
 
 Signing follows the same `web-ext sign --channel=unlisted` flow as the MS Viewer
 extension (AMO credentials via `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`).
+
+Releases are signed and published automatically by GitHub Actions; installed copies auto-update.

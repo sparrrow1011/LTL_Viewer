@@ -348,3 +348,5 @@ Still to confirm live:
 Records + EML flow built: SMC feeds the load list, SharePoint stores the
 annotations (via the SharePoint-origin bridge), writes are keyed `orderid|vrid`.
 The remaining step is confirming the bridged SharePoint write in your session.
+
+Releases are signed and published automatically by GitHub Actions; installed copies auto-update.
