@@ -55,6 +55,15 @@
               "strict_min_version": "115.0"
             }
           }
+        },
+        {
+          "version": "0.2.13",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/lobby-sweeper/lobby-sweeper-0.2.13.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
         }
       ]
     }
