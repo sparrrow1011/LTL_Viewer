@@ -207,12 +207,24 @@ async function publishRoster() {
   const btn = $("btnRosterPublish");
   btn.disabled = true;
   try {
-    const api = "https://api.github.com/repos/sparrrow1011/LTL_Viewer/contents/roster.json";
     const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+    // Distinguish "bad token" from "token lacks access to this repo" up front.
+    const who = await fetch("https://api.github.com/user", { headers });
+    if (who.status === 401) {
+      $("publishTokenBox").open = true;
+      throw new Error("GitHub rejected the token (401). Paste the same token that works on the control page — or create a new fine-grained token (LTL_Viewer, Contents: read/write) and Save it below.");
+    }
+    if (!who.ok) throw new Error(`GitHub /user HTTP ${who.status}`);
+    const login = (await who.json()).login;
+    const api = "https://api.github.com/repos/sparrrow1011/LTL_Viewer/contents/roster.json";
     let sha;
     const meta = await fetch(`${api}?ref=updates`, { headers });
     if (meta.ok) sha = (await meta.json()).sha;
-    else if (meta.status !== 404) throw new Error(`read sha: HTTP ${meta.status}`);
+    else if (meta.status === 403 || meta.status === 404) {
+      // 404 is also what GitHub returns for "no access" on private paths; the repo is public so a 404 here is genuinely "no roster yet".
+      if (meta.status === 403) throw new Error(`Token for ${login} has no access to sparrrow1011/LTL_Viewer (403). Edit the token: Repository access → LTL_Viewer, Contents → Read and write.`);
+    } else throw new Error(`read sha: HTTP ${meta.status}`);
+    ulog("info", `publishing roster as ${login}`);
     const doc = {
       publishedAt: new Date().toISOString(),
       publishedBy: (app.controlAlias || "") || undefined,
@@ -228,8 +240,9 @@ async function publishRoster() {
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ message: `roster: ${rows.length} install(s)`, content: btoa(unescape(encodeURIComponent(body))), branch: "updates", ...(sha ? { sha } : {}) }),
     });
+    if (r.status === 403) throw new Error(`Write refused (403): the token for ${login} needs Contents → Read and write on sparrrow1011/LTL_Viewer.`);
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    banner("ok", `Roster published (${rows.length} installs). The control page will show them on its next load.`);
+    banner("ok", `Roster published as ${esc(login)} (${rows.length} installs). The control page will show them on its next load.`);
     ulog("info", `roster published to updates/roster.json (${rows.length} rows)`);
   } catch (e) {
     banner("error", `Publish failed: ${esc(e.message)}`);
@@ -980,9 +993,19 @@ async function init() {
   $("btnControlRefresh").addEventListener("click", () => renderControl(true));
   $("btnRosterReload").addEventListener("click", loadRoster);
   $("publishToken").value = localStorage.getItem("ltl.admin.token") || "";
-  $("btnPublishTokenSave").addEventListener("click", () => {
-    localStorage.setItem("ltl.admin.token", $("publishToken").value.trim());
-    banner("ok", "Token saved in this browser.");
+  $("btnPublishTokenSave").addEventListener("click", async () => {
+    const t = $("publishToken").value.trim();
+    if (!t) return banner("warn", "Paste a token first.");
+    try {
+      const r = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${t}`, Accept: "application/vnd.github+json" } });
+      if (r.status === 401) return banner("error", "GitHub rejected that token (401) — not saved. Check for missing/extra characters or an expired token.");
+      if (!r.ok) return banner("error", `GitHub /user HTTP ${r.status} — not saved.`);
+      const login = (await r.json()).login;
+      localStorage.setItem("ltl.admin.token", t);
+      banner("ok", `Token saved — signed in to GitHub as ${esc(login)}.`);
+    } catch (e) {
+      banner("error", `Couldn't reach GitHub: ${esc(e.message)}`);
+    }
   });
   $("btnPublishTokenClear").addEventListener("click", () => {
     localStorage.removeItem("ltl.admin.token");
