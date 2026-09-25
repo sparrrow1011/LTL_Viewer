@@ -1,0 +1,153 @@
+# Sign the Firefox extensions with AMO on every push to main that changes
+# them, and publish the signed .xpi + updates.json to the `updates` branch.
+# Installed copies pick the new version up via the manifest's update_url.
+#
+# Secrets required (repo → Settings → Secrets and variables → Actions):
+#   WEB_EXT_API_KEY     AMO JWT issuer  (user:…)
+#   WEB_EXT_API_SECRET  AMO JWT secret
+#
+# Remember to bump manifest.json "version" — AMO rejects a reused version and
+# the job fails on purpose so the mistake is visible.
+name: Sign and publish extensions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sweeper_extension/**"
+      - "extension/**"
+      - ".github/workflows/sign-and-publish.yml"
+      - ".github/scripts/publish-update.mjs"
+  workflow_dispatch:
+    inputs:
+      which:
+        description: "Which extension(s) to sign"
+        type: choice
+        options: [both, lobby-sweeper, ms-viewer]
+        default: both
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sign-and-publish
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      sweeper: ${{ steps.f.outputs.sweeper }}
+      viewer: ${{ steps.f.outputs.viewer }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - id: f
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            W="${{ inputs.which }}"
+            echo "sweeper=$([ "$W" = both ] || [ "$W" = lobby-sweeper ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "viewer=$([ "$W" = both ] || [ "$W" = ms-viewer ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only HEAD~1 HEAD || git ls-files)
+          echo "sweeper=$(echo "$CHANGED" | grep -q '^sweeper_extension/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "viewer=$(echo "$CHANGED" | grep -q '^extension/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  sign:
+    needs: changes
+    if: needs.changes.outputs.sweeper == 'true' || needs.changes.outputs.viewer == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1 # AMO signing + pushing to the same branch: keep sequential
+      fail-fast: false
+      matrix:
+        include:
+          - slug: lobby-sweeper
+            dir: sweeper_extension
+            enabled: ${{ needs.changes.outputs.sweeper }}
+          - slug: ms-viewer
+            dir: extension
+            enabled: ${{ needs.changes.outputs.viewer }}
+    steps:
+      - name: Skip if unchanged
+        if: matrix.enabled != 'true'
+        run: echo "no changes under ${{ matrix.dir }} — skipping"
+
+      - uses: actions/checkout@v4
+        if: matrix.enabled == 'true'
+
+      - uses: actions/setup-node@v4
+        if: matrix.enabled == 'true'
+        with: { node-version: 20 }
+
+      - name: Syntax check
+        if: matrix.enabled == 'true'
+        shell: bash
+        run: |
+          set -e
+          find "${{ matrix.dir }}" -name '*.js' -not -path '*/web-ext-artifacts/*' -print0 | xargs -0 -n1 node --check
+
+      - name: Lint (errors fail the build)
+        if: matrix.enabled == 'true'
+        # --self-hosted: update_url is only legal for unlisted/self-distributed add-ons
+        run: npx --yes web-ext@8 lint --self-hosted --source-dir "${{ matrix.dir }}" --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid"
+
+      - name: Guard — version must not already be published
+        if: matrix.enabled == 'true'
+        shell: bash
+        run: |
+          V=$(node -p "require('./${{ matrix.dir }}/manifest.json').version")
+          echo "version=$V" >> "$GITHUB_ENV"
+          if git ls-remote --exit-code origin updates >/dev/null 2>&1; then
+            git fetch --depth 1 origin updates
+            if git show origin/updates:${{ matrix.slug }}/updates.json 2>/dev/null | grep -q "\"version\": \"$V\""; then
+              echo "::error::${{ matrix.dir }}/manifest.json version $V is already published — bump it."
+              exit 1
+            fi
+          fi
+
+      - name: Sign with AMO
+        if: matrix.enabled == 'true'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        run: |
+          test -n "$WEB_EXT_API_KEY" || { echo "::error::WEB_EXT_API_KEY secret missing"; exit 1; }
+          npx --yes web-ext@8 sign --source-dir "${{ matrix.dir }}" --artifacts-dir out --channel unlisted \
+            --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid"
+          ls -la out
+
+      - name: Checkout updates branch
+        if: matrix.enabled == 'true'
+        shell: bash
+        run: |
+          if git ls-remote --exit-code origin updates >/dev/null 2>&1; then
+            git clone --depth 1 --branch updates "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" updates
+          else
+            mkdir updates && cd updates && git init -b updates
+            git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+            printf '# Firefox extension update feed\n\nGenerated by the sign-and-publish workflow. Do not edit by hand.\n' > README.md
+            git add README.md
+          fi
+
+      - name: Publish .xpi + updates.json
+        if: matrix.enabled == 'true'
+        shell: bash
+        run: |
+          XPI=$(ls out/*.xpi | head -n1)
+          node .github/scripts/publish-update.mjs "${{ matrix.slug }}" "${{ matrix.dir }}" "$XPI" updates
+          cd updates
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "${{ matrix.slug }} ${{ env.version }}" || { echo "nothing to commit"; exit 0; }
+          git push origin updates
+
+      - name: Summary
+        if: matrix.enabled == 'true'
+        run: |
+          echo "### ${{ matrix.slug }} ${{ env.version }} published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- feed: https://raw.githubusercontent.com/${{ github.repository }}/updates/${{ matrix.slug }}/updates.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "- xpi:  https://raw.githubusercontent.com/${{ github.repository }}/updates/${{ matrix.slug }}/${{ matrix.slug }}-${{ env.version }}.xpi" >> "$GITHUB_STEP_SUMMARY"

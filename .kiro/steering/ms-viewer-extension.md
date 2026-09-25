@@ -10,8 +10,19 @@ for extension work.
 # 1. syntax, every file
 Get-ChildItem -Recurse extension -Filter *.js | % { node --check $_.FullName }
 # 2. lint (0 errors required; 3 known warnings: 2× manifest min-version, 1× innerHTML in overlay.js)
-npx --yes web-ext lint --source-dir=extension --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid"
+#    --self-hosted is REQUIRED: the manifest carries update_url (self-distributed add-on)
+npx --yes web-ext lint --self-hosted --source-dir=extension --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid"
 ```
+
+## Releasing (automatic)
+
+Pushing to `main` with changes under `extension/` or `sweeper_extension/` runs
+`.github/workflows/sign-and-publish.yml`: lint → AMO sign → publish the `.xpi`
+and `updates.json` to the `updates` branch. Installed copies auto-update from
+`browser_specific_settings.gecko.update_url` (raw.githubusercontent.com).
+Bump `manifest.json` version first or the job fails. AMO creds are repo
+secrets `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`. Manual `web-ext sign` still
+works for a one-off local build.
 
 There is no automated test suite; SMC / SharePoint / FMC can't be exercised
 locally. Say so explicitly instead of implying live verification.

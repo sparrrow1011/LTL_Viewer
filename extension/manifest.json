@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "MS Viewer",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Manual Sourcing Viewer: full-page LTL/CST manual-sourcing table, outcomes dashboard and EML generation over SMC/FMC, backed by SharePoint.",
   "browser_specific_settings": {
     "gecko": {
       "id": "ltl-viewer-overlay@internal",
       "strict_min_version": "115.0",
+      "update_url": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/updates.json",
       "data_collection_permissions": {
         "required": ["none"]
       }
