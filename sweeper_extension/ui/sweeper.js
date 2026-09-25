@@ -144,7 +144,16 @@ function showTab(name) {
 }
 
 // ── installs roster (Extension_Installs SharePoint list) ───────────────────
+const CONTROL_PAGE = "https://sparrrow1011.github.io/LTL_Viewer/";
 const ROSTER_COLUMNS = [
+  {
+    key: "_act",
+    label: "",
+    render: (r) =>
+      `<a class="btn btn-ghost" style="padding:2px 8px;font-size:12px" target="_blank" rel="noopener" href="${esc(
+        `${CONTROL_PAGE}#ext=${encodeURIComponent(r.extension)}&alias=${encodeURIComponent(r.alias || "")}&install=${encodeURIComponent(r.installId)}`
+      )}" title="Open the control page with this user pre-filled">Control…</a>`,
+  },
   { key: "alias", label: "Alias", render: (r) => (r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>') },
   { key: "extension", label: "Extension", render: (r) => (r.extension === "lobby-sweeper" ? "Lobby Sweeper" : r.extension === "ms-viewer" ? "MS Viewer" : esc(r.extension)) },
   { key: "version", label: "Version" },
@@ -179,6 +188,54 @@ async function loadRoster() {
     banner(e.expired ? "error" : "warn", e.expired ? describeError(e, "Installs roster") : `Installs roster: ${esc(e.message)}`);
   }
   renderRoster();
+}
+
+// Mirror the roster to updates/roster.json so the control page (github.io,
+// which cannot reach SharePoint) can show users. Admin-only: needs the same
+// GitHub token as the control page. Only aliases/versions/timestamps go out —
+// no case data.
+async function publishRoster() {
+  const token = (localStorage.getItem("ltl.admin.token") || "").trim();
+  if (!token) {
+    $("publishTokenBox").open = true;
+    banner("warn", "Set the GitHub token below first (same one as the control page).");
+    return;
+  }
+  if (!app.roster) await loadRoster();
+  const rows = (app.roster && app.roster.rows) || [];
+  if (!rows.length) return banner("warn", "Nothing to publish — the roster is empty.");
+  const btn = $("btnRosterPublish");
+  btn.disabled = true;
+  try {
+    const api = "https://api.github.com/repos/sparrrow1011/LTL_Viewer/contents/roster.json";
+    const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+    let sha;
+    const meta = await fetch(`${api}?ref=updates`, { headers });
+    if (meta.ok) sha = (await meta.json()).sha;
+    else if (meta.status !== 404) throw new Error(`read sha: HTTP ${meta.status}`);
+    const doc = {
+      publishedAt: new Date().toISOString(),
+      publishedBy: (app.controlAlias || "") || undefined,
+      count: rows.length,
+      installs: rows.map((r) => ({
+        extension: r.extension, installId: r.installId, alias: r.alias, version: r.version,
+        firstSeen: r.firstSeen, lastSeen: r.lastSeen, lastRun: r.lastRun, runs: r.runs, browser: r.browser,
+      })),
+    };
+    const body = JSON.stringify(doc, null, 2) + "\n";
+    const r = await fetch(api, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: `roster: ${rows.length} install(s)`, content: btoa(unescape(encodeURIComponent(body))), branch: "updates", ...(sha ? { sha } : {}) }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    banner("ok", `Roster published (${rows.length} installs). The control page will show them on its next load.`);
+    ulog("info", `roster published to updates/roster.json (${rows.length} rows)`);
+  } catch (e) {
+    banner("error", `Publish failed: ${esc(e.message)}`);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function renderRoster() {
@@ -918,6 +975,16 @@ async function init() {
   });
   $("btnControlRefresh").addEventListener("click", () => renderControl(true));
   $("btnRosterReload").addEventListener("click", loadRoster);
+  $("publishToken").value = localStorage.getItem("ltl.admin.token") || "";
+  $("btnPublishTokenSave").addEventListener("click", () => {
+    localStorage.setItem("ltl.admin.token", $("publishToken").value.trim());
+    banner("ok", "Token saved in this browser.");
+  });
+  $("btnPublishTokenClear").addEventListener("click", () => {
+    localStorage.removeItem("ltl.admin.token");
+    $("publishToken").value = "";
+  });
+  $("btnRosterPublish").addEventListener("click", publishRoster);
   $("rosterSearch").addEventListener("input", renderRoster);
   $("rosterExt").addEventListener("change", renderRoster);
   $("btnUsageReport").addEventListener("click", async () => {

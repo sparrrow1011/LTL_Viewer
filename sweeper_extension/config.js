@@ -69,6 +69,8 @@ export const Config = {
     "https://trans-logistics-eu.amazon.com/*",
     "https://amazongbr.sharepoint.com/*",
     "https://hooks.slack.com/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
   ],
   SHIPPER_SOURCE: {
     file: "source_of_truth_crawler.csv",

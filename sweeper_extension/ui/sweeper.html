@@ -266,8 +266,19 @@
       </select>
       <span class="spacer"></span>
       <a id="rosterListLink" class="btn btn-ghost" target="_blank" rel="noopener" href="#">Open SharePoint list</a>
+      <a id="rosterControlLink" class="btn btn-ghost" target="_blank" rel="noopener" href="https://sparrrow1011.github.io/LTL_Viewer/">Open control page</a>
+      <button id="btnRosterPublish" class="btn" type="button" title="Copy this roster to roster.json on the updates branch so the control page can show users (admin token required)">Publish roster to control page</button>
       <button id="btnRosterReload" class="btn btn-ghost" type="button">Reload</button>
     </div>
+    <details class="sub" id="publishTokenBox">
+      <summary>GitHub token for publishing (admin only)</summary>
+      <div class="btnrow" style="margin-top:6px">
+        <input id="publishToken" type="password" placeholder="github_pat_… (Contents: read/write on sparrrow1011/LTL_Viewer)" autocomplete="off" style="min-width:420px" />
+        <button id="btnPublishTokenSave" class="btn btn-ghost" type="button">Save</button>
+        <button id="btnPublishTokenClear" class="btn btn-ghost" type="button">Forget</button>
+        <span class="hint">Stored in this browser only. Same token as the control page.</span>
+      </div>
+    </details>
     <div class="table-wrap">
       <table id="rosterTable" class="grid">
         <thead><tr id="rosterHead"></tr></thead>
