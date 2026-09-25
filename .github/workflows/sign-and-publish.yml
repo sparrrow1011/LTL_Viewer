@@ -18,6 +18,7 @@ on:
       - "extension/**"
       - ".github/workflows/sign-and-publish.yml"
       - ".github/scripts/publish-update.mjs"
+      - ".github/admin/**"
   workflow_dispatch:
     inputs:
       which:
@@ -153,11 +154,14 @@ jobs:
         run: |
           XPI=$(ls out/*.xpi | head -n1)
           node .github/scripts/publish-update.mjs "${{ matrix.slug }}" "${{ matrix.dir }}" "$XPI" updates
-          # Remote-control file: create with permissive defaults if absent; never overwrite (edited by hand).
+          # Remote-control file: create with permissive defaults if absent; never overwrite (edited by hand / admin page).
           if [ ! -f "updates/${{ matrix.slug }}/control.json" ]; then
             cp ".github/control/${{ matrix.slug }}.json" "updates/${{ matrix.slug }}/control.json"
             echo "seeded control.json"
           fi
+          # Admin page (GitHub Pages serves the updates branch root) — always refreshed from source.
+          cp .github/admin/index.html updates/index.html
+          touch updates/.nojekyll
           cd updates
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

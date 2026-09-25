@@ -1,0 +1,41 @@
+# Publish the control admin page to the `updates` branch root (served by
+# GitHub Pages). Runs on its own so a UI tweak doesn't trigger AMO signing.
+name: Publish admin page
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/admin/**", ".github/workflows/publish-admin.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sign-and-publish # same group as signing: both push to `updates`
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push index.html to updates branch
+        shell: bash
+        run: |
+          set -e
+          if git ls-remote --exit-code origin updates >/dev/null 2>&1; then
+            git clone --depth 1 --branch updates "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" updates
+          else
+            echo "::error::updates branch does not exist yet — run the sign workflow first"; exit 1
+          fi
+          cp .github/admin/index.html updates/index.html
+          touch updates/.nojekyll
+          cd updates
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "admin page" || { echo "no change"; exit 0; }
+          git push origin updates
+          echo "### Admin page published" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> "$GITHUB_STEP_SUMMARY"
