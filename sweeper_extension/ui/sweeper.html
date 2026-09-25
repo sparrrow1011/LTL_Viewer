@@ -214,6 +214,16 @@
         </section>
 
         <section class="card">
+          <h2>This install</h2>
+          <p id="controlIdentity" class="hint">Alias: — · Install ID: —</p>
+          <div id="controlStatus" class="status">Checking…</div>
+          <div class="btnrow">
+            <button type="button" id="btnControlRefresh" class="btn btn-ghost">Re-check</button>
+            <span class="hint">The administrator can enable/disable installs remotely by alias or install ID; re-checked every 15 min and before each run.</span>
+          </div>
+        </section>
+
+        <section class="card">
           <h2>Diagnostics</h2>
           <label class="check"><input type="checkbox" id="setDebug" name="debug" /> Verbose log (every bridge call and HTTP round-trip)</label>
           <p class="hint">Pipeline steps, warnings and errors are always logged. See the Log tab.</p>

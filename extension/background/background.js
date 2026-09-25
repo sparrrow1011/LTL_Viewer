@@ -15,7 +15,30 @@ import * as runsService from "./runsService.js";
 import * as fmcClient from "./fmcClient.js";
 import * as spClient from "./spClient.js";
 import * as smcClient from "./smcClient.js";
+import * as control from "./control.js";
 import { log } from "./debug.js";
+
+// ── remote control (control.json on the updates branch) ────────────────────
+control.init({
+  url: Config.CONTROL_URL,
+  version: browser.runtime.getManifest().version,
+  slug: "ms-viewer",
+  refreshMinutes: Config.CONTROL_REFRESH_MINUTES,
+  getAlias: () => smcClient.getRequester(),
+  log,
+});
+const CONTROL_ALARM = "ms-viewer-control";
+browser.alarms.create(CONTROL_ALARM, { periodInMinutes: Config.CONTROL_REFRESH_MINUTES });
+browser.alarms.onAlarm.addListener((a) => {
+  if (a.name === CONTROL_ALARM) control.refresh();
+});
+
+// Actions that stay available while remotely disabled (so the overlay can
+// explain itself). Everything else is refused with controlBlocked:true.
+const CONTROL_EXEMPT = new Set([
+  "getTeams", "checkSessions", "controlStatus", "setDebug",
+  "sp:bridge-ready", "fmc:bridge-ready", "smc:bridge-ready",
+]);
 
 // ── toolbar button → open (or focus) the MS Viewer page ───────────────────────
 const UI_URL = browser.runtime.getURL("ui/app.html");
@@ -123,6 +146,12 @@ const HANDLERS = {
   // [{orderid, vrid, ...snapshot}]) so RLB pickups show up as outcomes too.
   trackSeen: (msg) => runsService.trackSeen(teamOf(msg), msg.rows || []),
 
+  // ── remote control: identity + verdict; msg.refresh forces a re-read ──
+  controlStatus: async (msg) => {
+    if (msg.refresh) await control.refresh();
+    return control.status();
+  },
+
   // ── debug toggle (propagated from the overlay's Debug button) ──
   setDebug: (msg) => {
     if (msg.enabled) log.enable();
@@ -155,7 +184,11 @@ browser.runtime.onMessage.addListener((msg) => {
   log.info("router", `→ ${action}`, msg);
   // Return a promise so the overlay can await the response.
   return log
-    .time(`action:${action}`, () => Promise.resolve().then(() => handler(msg)))
+    .time(`action:${action}`, () =>
+      Promise.resolve()
+        .then(() => (CONTROL_EXEMPT.has(action) ? null : control.assertAllowed(action)))
+        .then(() => handler(msg))
+    )
     .then((data) => {
       log.debug("router", `✓ ${action}`, data);
       return { ok: true, data };
@@ -170,6 +203,7 @@ browser.runtime.onMessage.addListener((msg) => {
         status: err && err.status,
         body: err && err.body,
         expired: !!(err && err.expired),
+        controlBlocked: !!(err && err.controlBlocked),
       };
     });
 });

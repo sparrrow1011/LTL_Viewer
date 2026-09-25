@@ -1,0 +1,9 @@
+{
+  "_readme": "Remote control for the Lobby Sweeper extension. Edit the copy on the `updates` branch (lobby-sweeper/control.json) — installs re-read it every 15 min and before each run. Keys: enabled (global), message, notice (shown while enabled), minVersion, users{alias:{enabled,message}}, installs{installId:{enabled,message}}. A per-user/install enabled:true overrides a global enabled:false.",
+  "enabled": true,
+  "message": "",
+  "notice": "",
+  "minVersion": "0.2.7",
+  "users": {},
+  "installs": {}
+}

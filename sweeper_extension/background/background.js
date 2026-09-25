@@ -10,10 +10,24 @@ import { Config } from "../config.js";
 import * as store from "./store.js";
 import * as sweeper from "./sweeper.js";
 import * as shippers from "./shippers.js";
+import * as smc from "./smcClient.js";
+import * as control from "./control.js";
 import { log } from "./debug.js";
 
 const ALARM = "lobby-sweeper-cycle";
+const CONTROL_ALARM = "lobby-sweeper-control";
 const UI_URL = browser.runtime.getURL("ui/sweeper.html");
+
+// ── remote control (control.json on the updates branch) ────────────────────
+control.init({
+  url: Config.CONTROL_URL,
+  version: browser.runtime.getManifest().version,
+  slug: "lobby-sweeper",
+  refreshMinutes: Config.CONTROL_REFRESH_MINUTES,
+  getAlias: () => smc.getRequester(),
+  log,
+});
+browser.alarms.create(CONTROL_ALARM, { periodInMinutes: Config.CONTROL_REFRESH_MINUTES });
 
 // ── scheduler ──────────────────────────────────────────────────────────────
 
@@ -43,6 +57,13 @@ async function noteScheduler(patch) {
 }
 
 browser.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === CONTROL_ALARM) {
+    // Periodic re-read so a remote disable lands within CONTROL_REFRESH_MINUTES
+    // even when nothing else is happening; badge reflects it.
+    const v = await control.refresh();
+    if (!v.allowed) await sweeper.updateBadge().catch(() => {});
+    return;
+  }
   if (alarm.name !== ALARM && alarm.name !== RETRY_ALARM) return;
   const firedAt = Date.now();
   log.info("pipeline", `⏰ scheduler alarm fired (${alarm.name === RETRY_ALARM ? "retry" : "periodic"})`);
@@ -52,6 +73,13 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
   if (!settings.scheduleEnabled) {
     log.warn("scheduler", "alarm fired but scheduler is disabled — clearing");
     await browser.alarms.clear(ALARM);
+    return;
+  }
+  const verdict = await control.check({ force: true });
+  if (!verdict.allowed) {
+    log.warn("pipeline", `⏰ scheduled cycle refused by remote control (${verdict.reason}): ${verdict.message}`);
+    await noteScheduler({ lastOutcome: `blocked: ${verdict.message}`, lastOutcomeAt: firedAt });
+    await store.patchState({ lastError: { at: firedAt, job: "cycle", message: verdict.message, controlBlocked: true } });
     return;
   }
   if (sweeper.isRunning()) {
@@ -98,6 +126,7 @@ browser.action.onClicked.addListener(async () => {
  */
 async function startJob(job, fn) {
   if (sweeper.isRunning()) throw new Error(`Already running: ${sweeper.isRunning()}`);
+  await control.assertAllowed(job); // throws with .controlBlocked when remotely disabled
   const p = fn();
   p.catch(async (e) => {
     log.error(`job:${job}`, e);
@@ -189,6 +218,12 @@ const HANDLERS = {
   // Stop the current run at the next batch boundary (manual or scheduled).
   cancelRun: () => sweeper.requestCancel(),
 
+  // Remote control: identity + verdict for the Settings/banner; force re-read.
+  controlStatus: async (msg) => {
+    if (msg.refresh) await control.refresh();
+    return control.status();
+  },
+
   clearAlertLog: async () => {
     await store.patchState({ alertLog: {} });
     return { cleared: true };
@@ -261,6 +296,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
         error: String(err && err.message ? err.message : err),
         status: err && err.status,
         expired: !!(err && err.expired),
+        controlBlocked: !!(err && err.controlBlocked),
       };
     });
 });

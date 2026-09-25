@@ -204,6 +204,17 @@
         .then((status) => (status === 200 ? ok({ status }) : fail(Object.assign(new Error(`ping HTTP ${status}`), { status }))))
         .catch(fail);
     }
+    // Signed-in Amazon alias (`requester` in /configuration/constants) — the
+    // identity used by the remote control file.
+    if (msg.action === "smc:requester") {
+      return fetch(`${ORIGIN}/configuration/constants`, { credentials: "include", cache: "no-store", headers: { accept: "application/json" } })
+        .then(async (res) => {
+          assertApiResponse(res);
+          const data = await res.json();
+          return ok({ requester: data && data.requester ? String(data.requester).trim() : null });
+        })
+        .catch(fail);
+    }
     if (msg.action === "smc:pairs") {
       const win = msg.window || {};
       if (!win.start || !win.end) return fail(new Error("smc:pairs needs window.start/end"));

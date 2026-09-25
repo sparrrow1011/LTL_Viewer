@@ -988,6 +988,26 @@
         s || e0 ? `Window ${s || "…"} 00:00 → ${e0 || "…"} 00:05` : ""
       );
 
+      // ── Remote control (BEFORE anything else) ─────────────────────────────
+      // control.json on the updates branch can disable this install (globally,
+      // per alias, per install id, or below a minimum version). The background
+      // also refuses data actions when disabled; this just explains it up front.
+      try {
+        const ctl = await msg("controlStatus", { refresh: true });
+        if (ctl && ctl.verdict && ctl.verdict.allowed === false) {
+          Loader.start("sessions", "remote control check…");
+          const who = ctl.alias ? `${ctl.alias} · install ${ctl.installId}` : `install ${ctl.installId}`;
+          Loader.fail("sessions", `Disabled by the administrator (${ctl.verdict.reason}): ${ctl.verdict.message}  ·  ${who}`, {
+            onRetry: fetchData,
+          });
+          state.rows = null;
+          return;
+        }
+        if (ctl && ctl.verdict && ctl.verdict.notice) toast(ctl.verdict.notice, "info");
+      } catch (e) {
+        dlog("controlStatus failed (continuing):", e && e.message);
+      }
+
       // ── Session pre-flight (BEFORE fetching/rendering anything) ───────────
       // We validate every load on FMC and save annotations to SharePoint, so
       // all three sessions must be live. If any is missing, the step fails in

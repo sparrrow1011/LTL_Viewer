@@ -16,6 +16,13 @@ export const Config = {
   // __ltlDebug.enable() / .disable().
   DEBUG: false,
 
+  // ── Remote control ────────────────────────────────────────────────────────
+  // control.json on the repo's `updates` branch: global/per-user enable flag,
+  // minimum version, message. See background/control.js (shared with the
+  // Lobby Sweeper). Re-read every CONTROL_REFRESH_MINUTES and before each load.
+  CONTROL_URL: "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/control.json",
+  CONTROL_REFRESH_MINUTES: 15,
+
   // ── SharePoint target (cookie-authenticated REST) ─────────────────────────
   // Origin of the SharePoint tenant.
   SP_ORIGIN: "https://amazongbr.sharepoint.com",

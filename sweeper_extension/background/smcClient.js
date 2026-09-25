@@ -18,6 +18,14 @@ export async function ping() {
   return true;
 }
 
+/** Signed-in alias from an EXISTING SMC tab only (never opens one just for this). */
+export async function getRequester() {
+  const tab = await bridge.findTab();
+  if (!tab) return null;
+  const resp = await browser.tabs.sendMessage(tab.id, { action: "smc:requester" }).catch(() => null);
+  return resp && resp.ok ? resp.requester : null;
+}
+
 /**
  * fetch_paragon_queries window: [today - daysBack, today + daysForward] as
  * whole UTC days.

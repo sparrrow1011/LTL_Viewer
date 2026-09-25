@@ -14,6 +14,16 @@ Get-ChildItem -Recurse extension -Filter *.js | % { node --check $_.FullName }
 npx --yes web-ext lint --self-hosted --source-dir=extension --ignore-files "web-ext-artifacts/**" "README.md" ".amo-upload-uuid"
 ```
 
+## Remote control
+
+`background/control.js` (identical copy in both extensions — keep in sync)
+reads `<slug>/control.json` from the `updates` branch every 15 min and before
+each load/run: global `enabled`, `minVersion`, `notice`, per-alias `users{}`
+and per-`installs{}` overrides. Identity = SMC `requester` alias + a random
+install id (both shown in the UI). Admin edits: `.github/scripts/control.ps1
+<slug> disable-user <alias> "<message>"` etc. The seed files live in
+`.github/control/`; the workflow copies them only when none exists yet.
+
 ## Releasing (automatic)
 
 Pushing to `main` with changes under `extension/` or `sweeper_extension/` runs

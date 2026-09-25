@@ -59,6 +59,7 @@ async function call(action, payload = {}) {
   if (!resp.ok) {
     const err = new Error(resp.error || `${action} failed`);
     err.expired = !!resp.expired;
+    err.controlBlocked = !!resp.controlBlocked;
     err.status = resp.status;
     throw err;
   }
@@ -100,7 +101,8 @@ function setBusy(text) {
   $("busyText").textContent = text || "";
   // Run sweep / Run SLA check stay disabled permanently (single-job runs are
   // retired in favour of Run both); only these two toggle with busy state.
-  for (const id of ["btnRunCycle", "btnCheckSessions"]) $(id).disabled = !!text;
+  $("btnCheckSessions").disabled = !!text;
+  $("btnRunCycle").disabled = !!text || app.controlBlocked === true;
   if (text) {
     // Re-enable Stop for a new run unless a stop is already pending.
     const stopping = /stopping after this batch/i.test(text);
@@ -110,6 +112,9 @@ function setBusy(text) {
 }
 
 function describeError(e, what) {
+  if (e.controlBlocked) {
+    return `<strong>Disabled by the administrator.</strong> ${esc(e.message)} <button type="button" class="btn btn-ghost" data-act="control-refresh">Re-check</button>`;
+  }
   if (e.orphaned) {
     return `${esc(e.message)} <button type="button" class="btn btn-ghost" data-act="reload-page">Reload this page</button>`;
   }
@@ -745,7 +750,8 @@ async function refreshState() {
     setBusy(null);
     const le = app.state.lastError;
     if (le && !$("banner").innerHTML) {
-      if (le.cancelled) banner("warn", `Last ${esc(le.job)} at ${fmtTime(le.at)} was stopped: ${esc(le.message)}`);
+      if (le.controlBlocked) banner("error", `Scheduled ${esc(le.job)} at ${fmtTime(le.at)} was refused — disabled by the administrator: ${esc(le.message)}`);
+      else if (le.cancelled) banner("warn", `Last ${esc(le.job)} at ${fmtTime(le.at)} was stopped: ${esc(le.message)}`);
       else banner(le.expired ? "error" : "warn", `Last ${esc(le.job)} at ${fmtTime(le.at)} failed: ${esc(le.message)}`);
     }
   }
@@ -800,6 +806,37 @@ async function grantAccess() {
   }
 }
 
+// ── remote control (control.json) ──────────────────────────────────────────
+async function renderControl(refresh = false) {
+  let s;
+  try {
+    s = await call("controlStatus", { refresh });
+  } catch (e) {
+    $("controlStatus").className = "status warn";
+    $("controlStatus").textContent = `Couldn't read control status: ${e.message}`;
+    return true;
+  }
+  const v = s.verdict || { allowed: true };
+  $("controlIdentity").innerHTML =
+    `Alias: <code>${esc(s.alias || "unknown — open an SMC tab")}</code> · Install ID: <code>${esc(s.installId)}</code>`;
+  const when = s.fetchedAt ? `checked ${fmtTime(s.fetchedAt)}` : "not checked yet";
+  const err = s.error ? ` · last fetch error: ${esc(s.error)}` : "";
+  const el = $("controlStatus");
+  app.controlBlocked = !v.allowed;
+  if (v.allowed) {
+    el.className = "status good";
+    el.innerHTML = `Enabled for this install (${when})${err}${v.notice ? ` · notice: ${esc(v.notice)}` : ""}`;
+    if (v.notice) banner("warn", `<strong>Notice:</strong> ${esc(v.notice)}`);
+    for (const id of ["btnRunCycle", "schedToggle"]) $(id).disabled = false;
+    return true;
+  }
+  el.className = "status bad";
+  el.innerHTML = `<strong>Disabled</strong> (${esc(v.reason)}, ${when}): ${esc(v.message)}${err}`;
+  banner("error", `<strong>Disabled by the administrator.</strong> ${esc(v.message)} <button type="button" class="btn btn-ghost" data-act="control-refresh">Re-check</button>`);
+  for (const id of ["btnRunCycle", "schedToggle"]) $(id).disabled = true;
+  return false;
+}
+
 async function init() {
   app.config = await call("getConfig");
   app.settings = await call("getSettings");
@@ -809,8 +846,11 @@ async function init() {
     if (e.target.closest("[data-act='grant-access']")) grantAccess();
     else if (e.target.closest("[data-act='open-expired']")) openExpiredSites();
     else if (e.target.closest("[data-act='recheck']")) checkSessions(false);
+    else if (e.target.closest("[data-act='control-refresh']")) renderControl(true);
   });
-  if (await checkPermissions()) checkSessions(true);
+  $("btnControlRefresh").addEventListener("click", () => renderControl(true));
+  const allowed = await renderControl(false);
+  if (allowed && (await checkPermissions())) checkSessions(true);
 
   for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => showTab(b.dataset.tab));
   $("banner").addEventListener("click", (e) => {

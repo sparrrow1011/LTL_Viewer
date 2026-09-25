@@ -80,3 +80,12 @@ extension (AMO credentials via `WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`).
 
 Releases are signed and published automatically by GitHub Actions; installed copies auto-update.
 
+
+## Remote control
+
+The administrator can pause the sweeper on any install without a new release:
+`lobby-sweeper/control.json` on the repo's `updates` branch is re-read every
+15 minutes and before each run. It supports a global switch, a minimum version,
+a notice banner, and per-user (SMC alias) or per-install-ID overrides. Your
+alias and install ID are shown in Settings → "This install". Admin helper:
+`.github/scripts/control.ps1 lobby-sweeper disable-user <alias> "<message>"`.

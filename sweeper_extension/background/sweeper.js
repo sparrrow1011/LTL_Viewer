@@ -147,6 +147,17 @@ async function desktopNotify(title, message) {
 }
 
 export async function updateBadge() {
+  const ctl = (await browser.storage.local.get("control")).control;
+  if (ctl && ctl.verdict && ctl.verdict.allowed === false) {
+    try {
+      await browser.action.setBadgeText({ text: "OFF" });
+      await browser.action.setBadgeBackgroundColor({ color: "#6b7280" });
+      await browser.action.setTitle({ title: `Lobby Sweeper — disabled: ${ctl.verdict.message}` });
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
   const state = await store.getState();
   const alerts = (state.lastLobby && state.lastLobby.alerts) || [];
   const flagged = (state.lastSweep && state.lastSweep.flaggedCount) || 0;

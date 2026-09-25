@@ -123,6 +123,13 @@ export const Config = {
     wipStagnantHours: null,
   },
 
+  // ── Remote control ────────────────────────────────────────────────────────
+  // control.json on the repo's `updates` branch: global/per-user enable flag,
+  // minimum version, message. See background/control.js. Re-read every
+  // CONTROL_REFRESH_MINUTES and before every run.
+  CONTROL_URL: "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/lobby-sweeper/control.json",
+  CONTROL_REFRESH_MINUTES: 15,
+
   // ── Slack ─────────────────────────────────────────────────────────────────
   // No webhook ships in source (the repo is on GitHub; a webhook URL lets
   // anyone holding it post to the channel — GitHub secret scanning blocks it).

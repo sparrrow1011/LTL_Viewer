@@ -147,12 +147,17 @@ jobs:
             git add README.md
           fi
 
-      - name: Publish .xpi + updates.json
+      - name: Publish .xpi + updates.json (+ seed control.json once)
         if: matrix.enabled == 'true'
         shell: bash
         run: |
           XPI=$(ls out/*.xpi | head -n1)
           node .github/scripts/publish-update.mjs "${{ matrix.slug }}" "${{ matrix.dir }}" "$XPI" updates
+          # Remote-control file: create with permissive defaults if absent; never overwrite (edited by hand).
+          if [ ! -f "updates/${{ matrix.slug }}/control.json" ]; then
+            cp ".github/control/${{ matrix.slug }}.json" "updates/${{ matrix.slug }}/control.json"
+            echo "seeded control.json"
+          fi
           cd updates
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
