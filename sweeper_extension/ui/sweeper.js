@@ -145,6 +145,13 @@ function showTab(name) {
 
 // ── installs roster (Extension_Installs SharePoint list) ───────────────────
 const CONTROL_PAGE = "https://sparrrow1011.github.io/LTL_Viewer/";
+// Every extension that reports to Extension_Installs (slug → display name).
+const EXT_NAMES = {
+  "lobby-sweeper": "Lobby Sweeper",
+  "ms-viewer": "MS Viewer",
+  "hc-calculator": "HC Calculator",
+  "all-runs": "All Runs",
+};
 const ROSTER_COLUMNS = [
   {
     key: "_act",
@@ -155,7 +162,7 @@ const ROSTER_COLUMNS = [
       )}" title="Open the control page with this user pre-filled">Control…</a>`,
   },
   { key: "alias", label: "Alias", render: (r) => (r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>') },
-  { key: "extension", label: "Extension", render: (r) => (r.extension === "lobby-sweeper" ? "Lobby Sweeper" : r.extension === "ms-viewer" ? "MS Viewer" : esc(r.extension)) },
+  { key: "extension", label: "Extension", render: (r) => EXT_NAMES[r.extension] || esc(r.extension) },
   { key: "version", label: "Version" },
   { key: "lastSeen", label: "Last seen", render: (r) => ageCell(r.lastSeen) },
   { key: "lastRun", label: "Last run", render: (r) => ageCell(r.lastRun) },
@@ -264,8 +271,7 @@ function renderRoster() {
     ? [
         stat("Installs", all.length, `${aliases.size} known alias(es)`),
         stat("Active 24 h", all.filter((r) => Date.parse(r.lastSeen) > day).length),
-        stat("Lobby Sweeper", all.filter((r) => r.extension === "lobby-sweeper").length),
-        stat("MS Viewer", all.filter((r) => r.extension === "ms-viewer").length),
+        ...Object.entries(EXT_NAMES).map(([slug, name]) => stat(name, all.filter((r) => r.extension === slug).length)),
         ...Object.entries(versions).sort().map(([k, n]) => stat(k, n)),
       ].join("")
     : "";

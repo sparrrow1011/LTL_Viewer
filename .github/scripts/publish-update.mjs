@@ -5,7 +5,7 @@
  *
  *   node publish-update.mjs <slug> <source-dir> <signed.xpi> <updates-checkout-dir>
  *
- *   slug          folder name under the updates branch (lobby-sweeper | ms-viewer)
+ *   slug          folder name under the updates branch (lobby-sweeper | ms-viewer | hc-calculator | all-runs)
  *   source-dir    extension source (read manifest.json for id + version)
  *   signed.xpi    the file web-ext sign produced
  *   updates dir   working copy of the `updates` branch

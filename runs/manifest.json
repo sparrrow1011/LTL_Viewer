@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "All Runs",
+  "version": "0.1.0",
+  "description": "Live dashboard of every run in SMC for yesterday, today and tomorrow, validated on FMC and tagged CST / ELEX / FTL from the shipper source of truth. Read-only.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "all-runs@internal",
+      "strict_min_version": "115.0",
+      "update_url": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/all-runs/updates.json",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://smc-eu-dub.dub.proxy.amazon.com/*",
+    "https://amazongbr.sharepoint.com/*",
+    "https://trans-logistics-eu.amazon.com/*"
+  ],
+  "background": {
+    "scripts": ["background/background.js"],
+    "type": "module"
+  },
+  "action": {
+    "default_title": "All Runs",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://smc-eu-dub.dub.proxy.amazon.com/*"],
+      "js": ["content/smc.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://amazongbr.sharepoint.com/sites/AmazonFreightOperations/*"],
+      "js": ["content/sp-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://trans-logistics-eu.amazon.com/fmc/*"],
+      "js": ["content/fmc-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  }
+}

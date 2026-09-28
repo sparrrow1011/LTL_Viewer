@@ -3,7 +3,7 @@
 # Installed copies pick the new version up via the manifest's update_url.
 #
 # Secrets required (repo → Settings → Secrets and variables → Actions):
-#   WEB_EXT_API_KEY     AMO JWT issuer  (user:…)
+#   h     AMO JWT issuer  (user:…)
 #   WEB_EXT_API_SECRET  AMO JWT secret
 #
 # Remember to bump manifest.json "version" — AMO rejects a reused version and
@@ -16,16 +16,17 @@ on:
     paths:
       - "sweeper_extension/**"
       - "extension/**"
+      - "HC_Calculator/**"
+      - "runs/**"
       - ".github/workflows/sign-and-publish.yml"
       - ".github/scripts/publish-update.mjs"
-      - ".github/admin/**"
   workflow_dispatch:
     inputs:
       which:
         description: "Which extension(s) to sign"
         type: choice
-        options: [both, lobby-sweeper, ms-viewer]
-        default: both
+        options: [all, lobby-sweeper, ms-viewer, hc-calculator, all-runs]
+        default: all
 
 permissions:
   contents: write
@@ -40,25 +41,33 @@ jobs:
     outputs:
       sweeper: ${{ steps.f.outputs.sweeper }}
       viewer: ${{ steps.f.outputs.viewer }}
+      hc: ${{ steps.f.outputs.hc }}
+      runs: ${{ steps.f.outputs.runs }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 2 }
       - id: f
         shell: bash
         run: |
+          # "both" is still accepted so an older bookmarked dispatch keeps working.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             W="${{ inputs.which }}"
-            echo "sweeper=$([ "$W" = both ] || [ "$W" = lobby-sweeper ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-            echo "viewer=$([ "$W" = both ] || [ "$W" = ms-viewer ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            all=false; [ "$W" = all ] || [ "$W" = both ] && all=true
+            echo "sweeper=$([ "$all" = true ] || [ "$W" = lobby-sweeper ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "viewer=$([ "$all" = true ] || [ "$W" = ms-viewer ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "hc=$([ "$all" = true ] || [ "$W" = hc-calculator ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "runs=$([ "$all" = true ] || [ "$W" = all-runs ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED=$(git diff --name-only HEAD~1 HEAD || git ls-files)
           echo "sweeper=$(echo "$CHANGED" | grep -q '^sweeper_extension/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "viewer=$(echo "$CHANGED" | grep -q '^extension/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "hc=$(echo "$CHANGED" | grep -q '^HC_Calculator/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "runs=$(echo "$CHANGED" | grep -q '^runs/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   sign:
     needs: changes
-    if: needs.changes.outputs.sweeper == 'true' || needs.changes.outputs.viewer == 'true'
+    if: needs.changes.outputs.sweeper == 'true' || needs.changes.outputs.viewer == 'true' || needs.changes.outputs.hc == 'true' || needs.changes.outputs.runs == 'true'
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 1 # AMO signing + pushing to the same branch: keep sequential
@@ -71,6 +80,12 @@ jobs:
           - slug: ms-viewer
             dir: extension
             enabled: ${{ needs.changes.outputs.viewer }}
+          - slug: hc-calculator
+            dir: HC_Calculator
+            enabled: ${{ needs.changes.outputs.hc }}
+          - slug: all-runs
+            dir: runs
+            enabled: ${{ needs.changes.outputs.runs }}
     steps:
       - name: Skip if unchanged
         if: matrix.enabled != 'true'
