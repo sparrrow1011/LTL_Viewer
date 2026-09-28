@@ -75,7 +75,7 @@
     <h2 style="margin:0">Users &amp; installs <span id="usersMeta" class="hint"></span></h2>
     <div class="row">
       <input id="usersSearch" type="text" placeholder="search alias / version / id" style="max-width:260px" />
-      <select id="usersExt" style="max-width:180px"><option value="">both extensions</option><option value="lobby-sweeper">Lobby Sweeper</option><option value="ms-viewer">MS Viewer</option></select>
+      <select id="usersExt" style="max-width:180px"><option value="">all extensions</option><option value="lobby-sweeper">Lobby Sweeper</option><option value="ms-viewer">MS Viewer</option><option value="hc-calculator">HC Calculator</option><option value="all-runs">All Runs</option></select>
     </div>
   </div>
   <p class="hint">Mirrored from the <code>Extension_Installs</code> SharePoint list by an admin (Lobby Sweeper → Installs → <em>Publish roster to control page</em>). Live data is in that tab; this copy is as of the publish time.</p>
@@ -134,6 +134,8 @@
   const EXTS = [
     { slug: "lobby-sweeper", name: "Lobby Sweeper" },
     { slug: "ms-viewer", name: "MS Viewer" },
+    { slug: "hc-calculator", name: "HC Calculator" },
+    { slug: "all-runs", name: "All Runs" },
   ];
   const RAW = (p) => `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${p}?t=${Date.now()}`;
   const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents`;
@@ -386,7 +388,7 @@
       const dis = st.off
         ? `<button type="button" class="btn btn-sm" data-uact="enable" data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}">Re-enable</button>`
         : `<button type="button" class="btn btn-sm btn-danger" data-uact="disable" data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}">Disable</button>`;
-      return `<tr><td>${r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>'}</td><td>${r.extension === "lobby-sweeper" ? "Lobby Sweeper" : r.extension === "ms-viewer" ? "MS Viewer" : esc(r.extension)}</td><td>${esc(r.version)}</td><td>${age(r.lastSeen)}</td><td>${age(r.lastRun)}</td><td>${esc(r.runs)}</td><td><code>${esc(r.installId)}</code></td><td><span class="pill ${st.cls}">${esc(st.txt)}</span></td><td>${dis}</td></tr>`;
+      return `<tr><td>${r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>'}</td><td>${r.extension === "lobby-sweeper" ? "Lobby Sweeper" : r.extension === "ms-viewer" ? "MS Viewer" : r.extension === "hc-calculator" ? "HC Calculator" : r.extension === "all-runs" ? "All Runs" : esc(r.extension)}</td><td>${esc(r.version)}</td><td>${age(r.lastSeen)}</td><td>${age(r.lastRun)}</td><td>${esc(r.runs)}</td><td><code>${esc(r.installId)}</code></td><td><span class="pill ${st.cls}">${esc(st.txt)}</span></td><td>${dis}</td></tr>`;
     }).join("") : '<tr><td colspan="9" class="muted">no installs published yet — open Lobby Sweeper → Installs → Publish roster to control page</td></tr>';
   }
   $("#usersSearch").addEventListener("input", renderUsers);
