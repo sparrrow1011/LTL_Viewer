@@ -3,10 +3,10 @@
   "enabled": true,
   "message": "",
   "notice": "",
-  "minVersion": "0.2.7",
-  "users": {},
-  "installs": {},
+  "minVersion": "0.2.15",
   "admins": [
     "mayowas"
-  ]
+  ],
+  "users": {},
+  "installs": {}
 }
