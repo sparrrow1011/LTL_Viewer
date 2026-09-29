@@ -23,12 +23,30 @@ Per add-on, exactly the fields the add-ons' `background/control.js` evaluates:
 | Per-install overrides | same, keyed by install id (for a machine with no SMC alias) |
 | Raw JSON | edit the whole document when you need something the form doesn't expose |
 
-Installs (the roster table): every row from the `Extension_Installs`
-SharePoint list — alias, add-on, version, last seen / last run, runs, install
-id — with a **State** column that previews what that install will see with the
-current draft (rows whose state would change are highlighted). Disable /
-Re-enable buttons edit the matching card's draft; **Remove row** deletes a
-stale roster entry (the add-on re-creates it on its next report).
+## Layout of the page
+
+A dashboard with a sidebar; the content area shows one view at a time
+(`#overview`, `#ext/<slug>`, `#installs`, `#settings` in the URL hash):
+
+- **Overview** — KPIs across all add-ons (installs, known aliases, active in
+  the last 24 h, blocked by the saved config) and one tile per add-on with its
+  saved state, install count, active count, latest published version, how many
+  installs are below it, and the current minimum version. Click a tile to open
+  the add-on.
+- **Extensions** (one sidebar entry each, with a status dot and the install
+  count; an orange "draft" badge while there are unsaved edits) — the add-on's
+  KPIs, the Availability form, the per-user / per-install overrides, a sticky
+  Save bar, the installs of that add-on, and the raw JSON.
+- **Installs** — every row from the `Extension_Installs` SharePoint list:
+  alias, add-on, version, last seen / last run, runs, install id, with a
+  **State** column that previews what that install will see with the current
+  draft (rows whose state would change are highlighted). Disable / Re-enable
+  edit the matching add-on's draft and jump to it; **Remove row** deletes a
+  stale roster entry (the add-on re-creates it on its next report).
+- **Settings** — the GitHub token and a short explanation of the mechanism.
+
+The sidebar footer shows who the token belongs to, Reload all, and (when
+Firefox has not granted site access yet) Grant site access.
 
 ## How a change is applied
 
@@ -51,8 +69,8 @@ latest published build is refused (it would lock everyone out).
   other add-ons; it auto-updates).
 - Firefox grants an installed add-on site access only when asked: if the
   roster or a save fails with a permission error, click **Grant site access**
-  in the header.
-- Click **Token…** and paste a fine-grained GitHub personal access token for
+  in the sidebar.
+- Open **Settings** and paste a fine-grained GitHub personal access token for
   `sparrrow1011/LTL_Viewer` with **Contents: Read and write**. It is kept in
   the add-on's private storage (`browser.storage.local`), not in a page's
   localStorage. Reading works without a token; saving needs one.
@@ -72,7 +90,7 @@ background/spClient.js        SharePoint REST via the bridge (same pattern as ru
 background/bridgeClient.js    find/open a SharePoint tab, inject, retry (shared helper)
 content/sp-bridge.js          same-origin fetch on the SharePoint tab
 shared/controlDoc.js          normalise / serialise / evaluate / summarise a control doc
-ui/control.html|css|js        the console page
+ui/control.html|css|js        the dashboard page (sidebar + views)
 ```
 
 Messages: `getConfig`, `checkSessions`, `gh:whoami`, `gh:setToken`,

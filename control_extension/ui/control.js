@@ -1,15 +1,19 @@
 /**
  * Extension Control — page logic.
  *
- * One card per controlled add-on (draft → Save writes control.json through the
- * background), plus a live install roster from SharePoint whose State column
- * previews the current draft. Everything goes through the background router.
+ * Dashboard layout: a sidebar lists the views (Overview, one entry per
+ * controlled add-on, Installs, Settings); the content area shows one view at a
+ * time. Each add-on view is a draft of its control.json (Save writes it through
+ * the background) plus the installs of that add-on. The Installs view is the
+ * live roster from SharePoint whose State column previews the current drafts.
+ * Everything goes through the background router.
  */
 import { normalize, serialize, cmpVersion, evaluate, summarize } from "../shared/controlDoc.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const clone = (o) => JSON.parse(JSON.stringify(o));
+const DAY = 86_400_000;
 
 async function call(action, payload = {}) {
   const r = await browser.runtime.sendMessage({ action, ...payload });
@@ -28,8 +32,9 @@ let cfg = null;
 const state = {}; // slug → { name, doc, orig, sha, latest, card, error }
 let roster = null; // { rows, listUrl, fetchedAt }
 let login = null;
+let view = { name: "overview", slug: null };
 
-const extName = (slug) => (cfg && cfg.exts.find((x) => x.slug === slug) || { name: slug }).name;
+const extName = (slug) => ((cfg && cfg.exts.find((x) => x.slug === slug)) || { name: slug }).name;
 
 function banner(kind, html) {
   const b = $("#banner");
@@ -40,6 +45,98 @@ function banner(kind, html) {
   b.className = `banner ${kind}`;
   b.innerHTML = html;
   b.hidden = false;
+  b.scrollIntoView({ block: "nearest" });
+}
+
+// ── views / sidebar ───────────────────────────────────────────────────────────
+
+function showView(name, slug = null) {
+  view = { name, slug };
+  for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== `view-${name}`;
+  if (name === "ext") for (const c of document.querySelectorAll("#extCards .ext")) c.hidden = c.dataset.slug !== slug;
+  for (const b of document.querySelectorAll(".nav")) {
+    const on = b.dataset.view === name && (name !== "ext" || b.dataset.slug === slug);
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-current", on ? "page" : "false");
+  }
+  const hash = name === "ext" ? `ext/${slug}` : name;
+  if (location.hash.replace(/^#/, "") !== hash) history.replaceState(null, "", `#${hash}`);
+  if (name === "overview") renderOverview();
+}
+
+function applyHash() {
+  const h = location.hash.replace(/^#/, "");
+  const m = h.match(/^ext\/(.+)$/);
+  if (m && cfg.exts.some((x) => x.slug === m[1])) showView("ext", m[1]);
+  else if (["installs", "settings"].includes(h)) showView(h);
+  else showView("overview");
+}
+
+/** Saved-state summary for one add-on: { cls, text } for pills, dots and tiles. */
+function savedState(slug) {
+  const s = state[slug];
+  if (!s || s.error) return { cls: "muted", text: "unavailable" };
+  const o = s.orig;
+  const offUsers = Object.values(o.users).filter((u) => u.enabled === false).length;
+  const offInst = Object.values(o.installs).filter((u) => u.enabled === false).length;
+  if (!o.enabled) return { cls: "bad", text: "DISABLED for everyone" };
+  if (offUsers || offInst) return { cls: "warn", text: `enabled · ${offUsers} user(s), ${offInst} install(s) off` };
+  return { cls: "good", text: o.notice ? "enabled · notice shown" : "enabled" };
+}
+
+const isDirty = (slug) => {
+  const s = state[slug];
+  return !!(s && !s.error && serialize(s.doc) !== serialize(s.orig));
+};
+
+function renderSidebar() {
+  const nav = $("#navExts");
+  nav.innerHTML = cfg.exts
+    .map((ext) => {
+      const st = savedState(ext.slug);
+      const n = ((roster && roster.rows) || []).filter((r) => r.extension === ext.slug).length;
+      return `<button type="button" class="nav" data-view="ext" data-slug="${esc(ext.slug)}" title="${esc(st.text)}"><span class="dot ${st.cls}"></span><span class="grow">${esc(ext.name)}</span>${isDirty(ext.slug) ? '<span class="badge warn" title="unsaved draft">draft</span>' : n ? `<span class="badge">${n}</span>` : ""}</button>`;
+    })
+    .join("");
+  $("#navInstallsCount").textContent = roster && roster.rows.length ? String(roster.rows.length) : "";
+  for (const b of document.querySelectorAll(".nav")) {
+    const on = b.dataset.view === view.name && (view.name !== "ext" || b.dataset.slug === view.slug);
+    b.classList.toggle("active", on);
+  }
+}
+
+const kpi = (n, label) => `<div class="kpi"><b>${esc(n)}</b><span>${esc(label)}</span></div>`;
+
+function renderOverview() {
+  const rows = (roster && roster.rows) || [];
+  const day = Date.now() - DAY;
+  const aliases = new Set(rows.map((r) => r.alias).filter(Boolean));
+  const offSaved = rows.filter((r) => state[r.extension] && !state[r.extension].error && !evaluate(state[r.extension].orig, idOf(r)).allowed).length;
+  $("#ovStats").innerHTML = roster
+    ? [kpi(rows.length, "installs"), kpi(aliases.size, "known aliases"), kpi(rows.filter((r) => Date.parse(r.lastSeen) > day).length, "active last 24 h"), kpi(offSaved, "blocked by saved config")].join("")
+    : kpi("…", "installs (roster loading)");
+  $("#ovTiles").innerHTML = cfg.exts
+    .map((ext) => {
+      const s = state[ext.slug];
+      const ok = !!(s && !s.error);
+      const st = savedState(ext.slug);
+      const mine = rows.filter((r) => r.extension === ext.slug);
+      const active = mine.filter((r) => Date.parse(r.lastSeen) > day).length;
+      const outdated = ok && s.latest ? mine.filter((r) => cmpVersion(r.version || "0", s.latest) < 0).length : 0;
+      const note = !s ? "loading…" : s.error ? esc(s.error) : s.orig.notice ? `Notice: ${esc(s.orig.notice)}` : !s.orig.enabled && s.orig.message ? `Message: ${esc(s.orig.message)}` : "";
+      return `<button type="button" class="tile" data-slug="${esc(ext.slug)}">
+        <h2><span>${esc(ext.name)}</span><span class="pill pill-${st.cls}">${esc(st.text)}</span></h2>
+        <div class="nums">
+          <div><b>${mine.length}</b>installs</div>
+          <div><b>${active}</b>active 24 h</div>
+          <div><b>${ok ? esc(s.latest || "—") : "—"}</b>latest</div>
+          <div><b>${outdated}</b>outdated</div>
+          <div><b>${ok ? esc(s.orig.minVersion || "—") : "—"}</b>min version</div>
+        </div>
+        ${note ? `<div class="note">${note}</div>` : ""}${isDirty(ext.slug) ? '<div class="note" style="color:var(--warn)">Unsaved draft on this add-on</div>' : ""}
+      </button>`;
+    })
+    .join("");
 }
 
 // ── GitHub token ──────────────────────────────────────────────────────────────
@@ -49,32 +146,29 @@ async function whoami() {
   try {
     const r = await call("gh:whoami");
     login = r.login;
-    if (!r.hasToken) {
-      pill.className = "pill pill-muted";
-      pill.textContent = "read-only (no token)";
-    } else {
-      pill.className = "pill pill-good";
-      pill.textContent = `signed in as ${r.login}`;
-    }
+    pill.className = `pill ${r.hasToken ? "pill-good" : "pill-muted"}`;
+    pill.textContent = r.hasToken ? `GitHub: ${r.login}` : "GitHub: read-only (no token)";
   } catch (e) {
     login = null;
     pill.className = "pill pill-bad";
-    pill.textContent = `token rejected (${e.message})`;
+    pill.textContent = `GitHub token rejected (${e.message})`;
   }
 }
 
-function wireHeader() {
-  $("#btnToken").addEventListener("click", () => {
-    $("#tokenCard").hidden = !$("#tokenCard").hidden;
-    $("#token").value = "";
-    if (!$("#tokenCard").hidden) $("#token").focus();
+function wireChrome() {
+  document.addEventListener("click", (e) => {
+    const nav = e.target.closest(".nav");
+    if (nav) return showView(nav.dataset.view, nav.dataset.slug || null);
+    const tile = e.target.closest(".tile[data-slug]");
+    if (tile) showView("ext", tile.dataset.slug);
   });
+  window.addEventListener("hashchange", applyHash);
+
   $("#btnSaveToken").addEventListener("click", async () => {
     const t = $("#token").value.trim();
     if (!t) return banner("warn", "Paste a token first.");
     await call("gh:setToken", { token: t });
     $("#token").value = "";
-    $("#tokenCard").hidden = true;
     await whoami();
     banner(login ? "ok" : "err", login ? `Token saved — signed in as <strong>${esc(login)}</strong>.` : "Token saved but GitHub rejected it — check it has access to the repo.");
   });
@@ -82,7 +176,7 @@ function wireHeader() {
     await call("gh:setToken", { token: "" });
     $("#token").value = "";
     await whoami();
-    banner("ok", "Token forgotten. The page is read-only until you set another.");
+    banner("ok", "Token forgotten. Saving is disabled until you set another.");
   });
   $("#btnReload").addEventListener("click", () => loadAll());
   $("#btnRosterReload").addEventListener("click", () => loadRoster());
@@ -107,42 +201,28 @@ function render(slug) {
   const s = state[slug];
   const c = s.card;
   $(".name", c).textContent = s.name;
+  const st = savedState(slug);
+  $(".state", c).className = `state pill pill-${st.cls}`;
+  $(".state", c).textContent = st.text;
   if (s.error) {
     $(".form", c).hidden = true;
     $(".err", c).hidden = false;
     $(".err", c).textContent = s.error;
-    $(".state", c).className = "pill pill-muted";
-    $(".state", c).textContent = "unavailable";
     $(".sha", c).textContent = `${slug}/control.json`;
+    renderSidebar();
     return;
   }
   $(".form", c).hidden = false;
   $(".err", c).hidden = true;
   const d = s.doc;
-  $(".ver", c).textContent = s.latest ? `latest ${s.latest}` : "";
+  $(".ver", c).textContent = s.latest ? `latest published ${s.latest}` : "no published build";
   $(".latest", c).textContent = s.latest ? `latest published: ${s.latest}` : "no published build found";
-  $(".sha", c).textContent = `${slug}/control.json${s.sha ? ` · sha ${s.sha.slice(0, 7)}` : ""}`;
+  $(".sha", c).textContent = `${slug}/control.json on ${cfg.branch}${s.sha ? ` · sha ${s.sha.slice(0, 7)}` : ""}`;
   $(".f-enabled", c).checked = d.enabled;
   for (const [sel, key] of [[".f-message", "message"], [".f-notice", "notice"], [".f-minver", "minVersion"]]) {
     if (document.activeElement !== $(sel, c)) $(sel, c).value = d[key];
   }
   if (document.activeElement !== $(".f-admins", c)) $(".f-admins", c).value = d.admins.join(", ");
-
-  // Saved state pill = what installs currently see.
-  const o = s.orig;
-  const st = $(".state", c);
-  const offUsers = Object.values(o.users).filter((u) => u.enabled === false).length;
-  const offInst = Object.values(o.installs).filter((u) => u.enabled === false).length;
-  if (!o.enabled) {
-    st.className = "pill pill-bad";
-    st.textContent = "DISABLED for everyone";
-  } else if (offUsers || offInst) {
-    st.className = "pill pill-warn";
-    st.textContent = `enabled · ${offUsers} user(s), ${offInst} install(s) off`;
-  } else {
-    st.className = "pill pill-good";
-    st.textContent = o.notice ? "enabled · notice shown" : "enabled";
-  }
 
   const rowsOf = (kind) =>
     Object.entries(d[kind])
@@ -156,11 +236,11 @@ function render(slug) {
   $(".installs tbody", c).innerHTML = rowsOf("installs");
   if (document.activeElement !== $(".raw", c)) $(".raw", c).value = serialize(d);
 
-  const dirty = serialize(d) !== serialize(o);
+  const dirty = isDirty(slug);
   c.classList.toggle("dirty", dirty);
   const bar = $(".dirtymsg", c);
   if (dirty) {
-    const sum = summarize(o, d);
+    const sum = summarize(s.orig, d);
     const danger = /DISABLE all|minVersion/.test(sum);
     bar.className = `dirtybar dirtymsg${danger ? " danger" : ""}`;
     bar.textContent = `Unsaved: ${sum}${danger ? " — this affects every install." : ""} Nothing changes until you click Save.`;
@@ -168,6 +248,8 @@ function render(slug) {
   } else bar.hidden = true;
   $(".f-save", c).disabled = !dirty;
   $(".f-revert", c).disabled = !dirty;
+  renderExtRoster(slug);
+  renderSidebar();
 }
 
 function readForm(slug) {
@@ -179,19 +261,23 @@ function readForm(slug) {
   d.admins = $(".f-admins", c).value.split(/[,\s]+/).map((a) => a.trim().toLowerCase()).filter(Boolean);
 }
 
+/** Re-render everything that depends on a draft. */
+function refresh(slug) {
+  render(slug);
+  renderRoster();
+}
+
 function wire(slug) {
   const s = state[slug], c = s.card;
   const update = () => {
     readForm(slug);
-    render(slug);
-    renderRoster();
+    refresh(slug);
   };
   for (const sel of [".f-enabled", ".f-message", ".f-notice", ".f-minver", ".f-admins"]) $(sel, c).addEventListener("input", update);
   $(".f-minver-latest", c).addEventListener("click", () => {
     if (!s.latest) return;
     s.doc.minVersion = s.latest;
-    render(slug);
-    renderRoster();
+    refresh(slug);
   });
   const add = (kind, keySel, msgSel, enabled) => () => {
     const key = $(keySel, c).value.trim().toLowerCase();
@@ -202,8 +288,7 @@ function wire(slug) {
     s.doc[kind][key] = entry;
     $(keySel, c).value = "";
     $(msgSel, c).value = "";
-    render(slug);
-    renderRoster();
+    refresh(slug);
   };
   $(".f-adduser-off", c).addEventListener("click", add("users", ".f-newuser", ".f-newuser-msg", false));
   $(".f-adduser-on", c).addEventListener("click", add("users", ".f-newuser", ".f-newuser-msg", true));
@@ -213,14 +298,12 @@ function wire(slug) {
     const b = e.target.closest("[data-rm]");
     if (!b) return;
     delete s.doc[b.dataset.rm][b.dataset.key];
-    render(slug);
-    renderRoster();
+    refresh(slug);
   });
   $(".f-apply-raw", c).addEventListener("click", () => {
     try {
       s.doc = normalize(JSON.parse($(".raw", c).value));
-      render(slug);
-      renderRoster();
+      refresh(slug);
       banner();
     } catch (e) {
       banner("err", `Raw JSON invalid: ${esc(e.message)}`);
@@ -228,18 +311,18 @@ function wire(slug) {
   });
   $(".f-revert", c).addEventListener("click", () => {
     s.doc = clone(s.orig);
-    render(slug);
-    renderRoster();
+    refresh(slug);
   });
   $(".f-save", c).addEventListener("click", () => save(slug));
+  $(".ext-roster", c).addEventListener("click", onRosterAction);
 }
 
 async function save(slug) {
   const s = state[slug];
   if (!login) {
-    $("#tokenCard").hidden = false;
+    showView("settings");
     $("#token").focus();
-    banner("warn", "Set a GitHub token first (Token… in the header) — needed to write to the repo.");
+    banner("warn", "Set a GitHub token first — needed to write to the repo.");
     return;
   }
   readForm(slug);
@@ -262,8 +345,7 @@ async function save(slug) {
     s.latest = out.latest || s.latest;
     s.doc = normalize(out.doc);
     s.orig = clone(s.doc);
-    render(slug);
-    renderRoster();
+    refresh(slug);
     banner("ok", `${esc(s.name)} saved (${esc(summary)}). Installs pick it up within 15 minutes, or on their next Run / Re-check.`);
   } catch (e) {
     banner("err", `Save failed for ${esc(s.name)}: ${esc(e.message)}`);
@@ -272,6 +354,8 @@ async function save(slug) {
 }
 
 // ── install roster ────────────────────────────────────────────────────────────
+
+const idOf = (r) => ({ alias: r.alias || null, installId: r.installId, version: r.version });
 
 const age = (iso) => {
   if (!iso) return '<span class="muted">—</span>';
@@ -284,15 +368,13 @@ const age = (iso) => {
 /** Preview of the DRAFT verdict for one roster row, plus whether it differs from the saved one. */
 function rowState(r) {
   const s = state[r.extension];
-  if (!s || s.error) return { txt: "", cls: "pill-muted", off: false, draft: false };
-  const id = { alias: r.alias || null, installId: r.installId, version: r.version };
-  const v = evaluate(s.doc, id);
-  const saved = evaluate(s.orig, id);
-  const label = (x) =>
-    x.allowed ? (x.override ? "enabled (override)" : "enabled") : x.reason === "version" ? `blocked: needs ≥ ${s.doc.minVersion}` : `disabled (${x.reason})`;
+  if (!s || s.error) return { txt: "", cls: "pill-muted", off: false, draft: false, blocked: false };
+  const v = evaluate(s.doc, idOf(r));
+  const saved = evaluate(s.orig, idOf(r));
+  const label = (x) => (x.allowed ? (x.override ? "enabled (override)" : "enabled") : x.reason === "version" ? `blocked: needs ≥ ${s.doc.minVersion}` : `disabled (${x.reason})`);
   const cls = v.allowed ? "pill-good" : v.reason === "version" ? "pill-warn" : "pill-bad";
   const off = !v.allowed && (v.reason === "user" || v.reason === "install");
-  return { txt: label(v), cls, off, draft: label(v) !== label(saved) };
+  return { txt: label(v), cls, off, draft: label(v) !== label(saved), blocked: !v.allowed };
 }
 
 async function loadRoster() {
@@ -303,7 +385,7 @@ async function loadRoster() {
     $("#rosterListLink").href = roster.listUrl;
     $("#rosterMeta").textContent = `— ${roster.rows.length} install(s), read ${new Date(roster.fetchedAt).toLocaleTimeString()}`;
   } catch (e) {
-    roster = { rows: [], listUrl: "#" };
+    roster = { rows: [], listUrl: "#", fetchedAt: null };
     $("#rosterMeta").textContent = "— unavailable";
     if (e.permission) $("#btnGrant").hidden = false;
     banner(
@@ -318,76 +400,92 @@ async function loadRoster() {
   renderRoster();
 }
 
+function rosterRow(r, { withExt }) {
+  const st = rowState(r);
+  const known = state[r.extension] && !state[r.extension].error;
+  const attrs = `data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}"`;
+  const act = !known
+    ? ""
+    : st.off
+      ? `<button type="button" class="btn btn-sm" data-uact="enable" ${attrs}>Re-enable</button>`
+      : `<button type="button" class="btn btn-sm btn-danger" data-uact="disable" ${attrs}>Disable</button>`;
+  const rm = `<button type="button" class="btn btn-sm" data-uact="remove" data-id="${esc(r.id)}" ${attrs} title="Delete this roster row (the add-on re-adds itself on its next report)">Remove row</button>`;
+  return `<tr class="${st.draft ? "draft" : ""}"><td>${r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>'}</td>${withExt ? `<td>${esc(extName(r.extension))}</td>` : ""}<td>${esc(r.version)}</td><td>${age(r.lastSeen)}</td><td>${age(r.lastRun)}</td><td>${esc(r.runs)}</td><td><code>${esc(r.installId)}</code></td><td>${st.txt ? `<span class="pill ${st.cls}">${esc(st.txt)}${st.draft ? " · draft" : ""}</span>` : ""}</td><td class="row">${act} ${rm}</td></tr>`;
+}
+
+const byLastSeen = (a, b) => (Date.parse(b.lastSeen) || 0) - (Date.parse(a.lastSeen) || 0);
+
 function renderRoster() {
   const all = (roster && roster.rows) || [];
   const q = $("#rosterSearch").value.trim().toLowerCase();
   const ext = $("#rosterExt").value;
   const rows = all
     .filter((r) => (!ext || r.extension === ext) && (!q || [r.alias, r.version, r.installId, r.extension].some((v) => String(v || "").toLowerCase().includes(q))))
-    .sort((a, b) => (Date.parse(b.lastSeen) || 0) - (Date.parse(a.lastSeen) || 0));
-
-  const day = Date.now() - 86_400_000;
+    .sort(byLastSeen);
+  const day = Date.now() - DAY;
   const aliases = new Set(all.map((r) => r.alias).filter(Boolean));
-  const stat = (label, n, sub) => `<div class="stat"><b>${esc(n)}</b>${esc(label)}${sub ? ` <span class="muted">· ${esc(sub)}</span>` : ""}</div>`;
   $("#rosterStats").innerHTML = all.length
-    ? [
-        stat("installs", all.length, `${aliases.size} known alias(es)`),
-        stat("active last 24 h", all.filter((r) => Date.parse(r.lastSeen) > day).length),
-        stat("disabled by draft", all.filter((r) => !rowState(r).txt.startsWith("enabled") && rowState(r).txt).length),
-      ].join("")
+    ? [kpi(all.length, "installs"), kpi(aliases.size, "known aliases"), kpi(all.filter((r) => Date.parse(r.lastSeen) > day).length, "active last 24 h"), kpi(all.filter((r) => rowState(r).blocked).length, "blocked by draft")].join("")
     : "";
-
   $("#rosterBody").innerHTML = rows.length
-    ? rows
-        .map((r) => {
-          const st = rowState(r);
-          const known = state[r.extension] && !state[r.extension].error;
-          const act = !known
-            ? ""
-            : st.off
-              ? `<button type="button" class="btn btn-sm" data-uact="enable" data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}">Re-enable</button>`
-              : `<button type="button" class="btn btn-sm btn-danger" data-uact="disable" data-ext="${esc(r.extension)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}">Disable</button>`;
-          const rm = `<button type="button" class="btn btn-sm" data-uact="remove" data-id="${esc(r.id)}" data-alias="${esc(r.alias)}" data-install="${esc(r.installId)}" title="Delete this roster row (the add-on re-adds itself on its next report)">Remove row</button>`;
-          return `<tr class="${st.draft ? "draft" : ""}"><td>${r.alias ? `<code>${esc(r.alias)}</code>` : '<span class="muted">unknown</span>'}</td><td>${esc(extName(r.extension))}</td><td>${esc(r.version)}</td><td>${age(r.lastSeen)}</td><td>${age(r.lastRun)}</td><td>${esc(r.runs)}</td><td><code>${esc(r.installId)}</code></td><td>${st.txt ? `<span class="pill ${st.cls}">${esc(st.txt)}${st.draft ? " · draft" : ""}</span>` : ""}</td><td class="row">${act} ${rm}</td></tr>`;
-        })
-        .join("")
-    : `<tr><td colspan="9" class="muted">${all.length ? "no installs match the filter" : "no installs reported yet"}</td></tr>`;
+    ? rows.map((r) => rosterRow(r, { withExt: true })).join("")
+    : `<tr><td colspan="9" class="muted">${all.length ? "no installs match the filter" : roster ? "no installs reported yet" : "loading…"}</td></tr>`;
+  for (const ext of cfg.exts) if (state[ext.slug] && !state[ext.slug].error) renderExtRoster(ext.slug);
+  renderSidebar();
+  if (view.name === "overview") renderOverview();
 }
 
-function wireRoster() {
-  $("#rosterBody").addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-uact]");
-    if (!b) return;
-    const who = b.dataset.alias || b.dataset.install;
-    if (b.dataset.uact === "remove") {
-      if (!confirm(`Delete the roster row for ${who}? This does not disable anything — the add-on re-creates the row on its next report.`)) return;
-      try {
-        await call("roster:remove", { id: Number(b.dataset.id) });
-        await loadRoster();
-      } catch (err) {
-        banner("err", `Remove failed: ${esc(err.message)}`);
-      }
-      return;
+function renderExtRoster(slug) {
+  const s = state[slug];
+  if (!s || s.error) return;
+  const c = s.card;
+  const mine = ((roster && roster.rows) || []).filter((r) => r.extension === slug).sort(byLastSeen);
+  const day = Date.now() - DAY;
+  const outdated = s.latest ? mine.filter((r) => cmpVersion(r.version || "0", s.latest) < 0).length : 0;
+  $(".ext-kpis", c).innerHTML = [
+    kpi(mine.length, "installs"),
+    kpi(mine.filter((r) => Date.parse(r.lastSeen) > day).length, "active last 24 h"),
+    kpi(outdated, s.latest ? `below ${s.latest}` : "outdated"),
+    kpi(mine.filter((r) => rowState(r).blocked).length, "blocked by draft"),
+    kpi(Object.values(s.doc.users).filter((u) => u.enabled === false).length + Object.values(s.doc.installs).filter((u) => u.enabled === false).length, "overrides off"),
+  ].join("");
+  $(".ext-roster-meta", c).textContent = roster ? `— ${mine.length}` : "— roster loading";
+  $(".ext-roster", c).innerHTML = mine.length
+    ? mine.map((r) => rosterRow(r, { withExt: false })).join("")
+    : `<tr><td colspan="8" class="muted">${roster ? "no installs reported for this add-on yet" : "loading…"}</td></tr>`;
+}
+
+async function onRosterAction(e) {
+  const b = e.target.closest("[data-uact]");
+  if (!b) return;
+  const who = b.dataset.alias || b.dataset.install;
+  if (b.dataset.uact === "remove") {
+    if (!confirm(`Delete the roster row for ${who}? This does not disable anything — the add-on re-creates the row on its next report.`)) return;
+    try {
+      await call("roster:remove", { id: Number(b.dataset.id) });
+      await loadRoster();
+    } catch (err) {
+      banner("err", `Remove failed: ${esc(err.message)}`);
     }
-    const s = state[b.dataset.ext];
-    if (!s || s.error) return;
-    const alias = b.dataset.alias || null, inst = b.dataset.install;
-    if (b.dataset.uact === "disable") {
-      const msg = prompt(`Message shown to ${who} when they open ${s.name} (optional):`, "");
-      if (msg === null) return;
-      const entry = { enabled: false };
-      if (msg.trim()) entry.message = msg.trim();
-      if (alias) s.doc.users[alias] = entry; // alias preferred; install id only when the alias is unknown
-      else s.doc.installs[inst] = entry;
-    } else {
-      if (alias) delete s.doc.users[alias];
-      delete s.doc.installs[inst];
-    }
-    render(b.dataset.ext);
-    renderRoster();
-    s.card.scrollIntoView({ behavior: "smooth", block: "start" });
-    banner("warn", `Draft updated for ${esc(s.name)} — click <strong>Save to GitHub</strong> on its card to apply.`);
-  });
+    return;
+  }
+  const s = state[b.dataset.ext];
+  if (!s || s.error) return;
+  const alias = b.dataset.alias || null, inst = b.dataset.install;
+  if (b.dataset.uact === "disable") {
+    const msg = prompt(`Message shown to ${who} when they open ${s.name} (optional):`, "");
+    if (msg === null) return;
+    const entry = { enabled: false };
+    if (msg.trim()) entry.message = msg.trim();
+    if (alias) s.doc.users[alias] = entry; // alias preferred; install id only when the alias is unknown
+    else s.doc.installs[inst] = entry;
+  } else {
+    if (alias) delete s.doc.users[alias];
+    delete s.doc.installs[inst];
+  }
+  refresh(b.dataset.ext);
+  if (view.name !== "ext" || view.slug !== b.dataset.ext) showView("ext", b.dataset.ext);
+  banner("warn", `Draft updated for ${esc(s.name)} — click <strong>Save to GitHub</strong> to apply.`);
 }
 
 // ── boot ──────────────────────────────────────────────────────────────────────
@@ -398,11 +496,13 @@ async function loadAll() {
   try {
     await whoami();
     const all = await call("ctl:loadAll");
-    const main = $("#main");
-    main.innerHTML = "";
+    const host = $("#extCards");
+    host.innerHTML = "";
     for (const ext of cfg.exts) {
       const card = $("#tplExt").content.firstElementChild.cloneNode(true);
-      main.appendChild(card);
+      card.dataset.slug = ext.slug;
+      card.hidden = !(view.name === "ext" && view.slug === ext.slug);
+      host.appendChild(card);
       const got = all[ext.slug] || { error: "not loaded" };
       state[ext.slug] = { name: ext.name, card, error: got.error || null, doc: got.doc ? normalize(got.doc) : null, orig: got.doc ? normalize(got.doc) : null, sha: got.sha, latest: got.latest || "" };
       if (!got.error) wire(ext.slug);
@@ -414,6 +514,7 @@ async function loadAll() {
   } finally {
     $("#btnReload").disabled = false;
   }
+  renderOverview();
   await loadRoster();
 }
 
@@ -421,7 +522,9 @@ async function loadAll() {
   cfg = await call("getConfig");
   $("#appVersion").textContent = `v${cfg.version}`;
   $("#branchName").textContent = cfg.branch;
+  $("#branchPath").textContent = "<slug>/control.json";
   $("#repoName").textContent = `${cfg.owner}/${cfg.repo}`;
+  $("#controlPageLink").href = cfg.controlPage;
   const sel = $("#rosterExt");
   for (const ext of cfg.exts) {
     const o = document.createElement("option");
@@ -429,7 +532,10 @@ async function loadAll() {
     o.textContent = ext.name;
     sel.appendChild(o);
   }
-  wireHeader();
-  wireRoster();
+  wireChrome();
+  renderSidebar();
+  $("#rosterBody").addEventListener("click", onRosterAction);
+  applyHash();
   await loadAll();
+  applyHash(); // cards exist now — honour a deep link to an add-on
 })().catch((e) => banner("err", `Startup failed: ${esc(e.message)}`));

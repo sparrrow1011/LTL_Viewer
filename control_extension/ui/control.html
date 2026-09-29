@@ -7,98 +7,148 @@
 <link rel="stylesheet" href="control.css" />
 </head>
 <body>
-<header>
-  <div>
-    <h1>Extension Control <span id="appVersion" class="pill pill-muted"></span></h1>
-    <p class="hint">Edits each add-on's <code>control.json</code> on the <code id="branchName">updates</code> branch. Installs re-read it every 15 minutes and before each run.</p>
-  </div>
-  <div class="row">
-    <span id="who" class="pill pill-muted" role="status">checking token…</span>
-    <button id="btnToken" type="button" class="btn">Token…</button>
-    <button id="btnReload" type="button" class="btn">Reload</button>
-    <button id="btnGrant" type="button" class="btn" hidden>Grant site access</button>
-  </div>
-</header>
-
-<div id="banner" class="banner" role="status" hidden></div>
-
-<section id="tokenCard" class="card" hidden>
-  <h2>GitHub token</h2>
-  <p class="hint">Needed only to <strong>save</strong>. A fine-grained personal access token for <code id="repoName"></code> with <em>Contents: Read and write</em>, stored privately in this add-on (not in any web page). <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create one on GitHub</a>.</p>
-  <div class="row">
-    <input id="token" type="password" aria-label="GitHub token" placeholder="github_pat_…" autocomplete="off" class="w-lg" />
-    <button id="btnSaveToken" type="button" class="btn btn-primary">Save token</button>
-    <button id="btnClearToken" type="button" class="btn">Forget</button>
-  </div>
-</section>
-
-<section id="rosterCard" class="card">
-  <div class="row between">
-    <h2>Installs <span id="rosterMeta" class="hint"></span></h2>
-    <div class="row">
-      <input id="rosterSearch" type="search" aria-label="Search installs" placeholder="search alias / version / id" class="w-md" />
-      <select id="rosterExt" aria-label="Filter by extension" class="w-sm"><option value="">all extensions</option></select>
-      <button id="btnRosterReload" type="button" class="btn">Reload roster</button>
-      <a id="rosterListLink" class="btn" target="_blank" rel="noopener" href="#">Open list</a>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="../icons/icon-48.png" alt="" width="32" height="32" />
+      <div><strong>Extension Control</strong><span id="appVersion" class="muted"></span></div>
     </div>
-  </div>
-  <p class="hint">Live from the <code>Extension_Installs</code> SharePoint list (each add-on reports itself there about once an hour). <em>State</em> previews what that install will see with the current <strong>draft</strong>; unsaved drafts are highlighted.</p>
-  <div id="rosterStats" class="row"></div>
-  <div class="scroll">
-    <table>
-      <thead><tr><th>Alias</th><th>Extension</th><th>Version</th><th>Last seen</th><th>Last run</th><th>Runs</th><th>Install ID</th><th>State</th><th></th></tr></thead>
-      <tbody id="rosterBody"><tr><td colspan="9" class="muted">loading…</td></tr></tbody>
-    </table>
-  </div>
-</section>
+    <nav aria-label="Sections">
+      <button type="button" class="nav" data-view="overview">Overview</button>
+      <div class="nav-section">Extensions</div>
+      <div id="navExts"></div>
+      <div class="nav-section">Admin</div>
+      <button type="button" class="nav" data-view="installs">Installs <span id="navInstallsCount" class="badge"></span></button>
+      <button type="button" class="nav" data-view="settings">Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <span id="who" class="pill pill-muted" role="status">checking token…</span>
+      <button id="btnReload" type="button" class="btn btn-sm">Reload all</button>
+      <button id="btnGrant" type="button" class="btn btn-sm" hidden>Grant site access</button>
+    </div>
+  </aside>
 
-<main id="main"></main>
+  <div class="content">
+    <div id="banner" class="banner" role="status" hidden></div>
+
+    <!-- ── Overview ─────────────────────────────────────────────────────── -->
+    <section id="view-overview" class="view" hidden>
+      <div class="page-head">
+        <div><h1>Overview</h1><p class="hint">What every install sees right now (saved state), and who is using what.</p></div>
+      </div>
+      <div id="ovStats" class="kpis"></div>
+      <div id="ovTiles" class="tiles"></div>
+    </section>
+
+    <!-- ── One extension ─────────────────────────────────────────────────── -->
+    <section id="view-ext" class="view" hidden>
+      <div id="extCards"></div>
+    </section>
+
+    <!-- ── Installs ──────────────────────────────────────────────────────── -->
+    <section id="view-installs" class="view" hidden>
+      <div class="page-head">
+        <div><h1>Installs <span id="rosterMeta" class="hint"></span></h1>
+          <p class="hint">Live from the <code>Extension_Installs</code> SharePoint list (each add-on reports itself about once an hour). <em>State</em> previews what that install will see with the current <strong>draft</strong>; rows that would change are highlighted.</p></div>
+        <div class="row">
+          <input id="rosterSearch" type="search" placeholder="search alias / version / id" aria-label="Search installs" class="w-md" />
+          <select id="rosterExt" aria-label="Filter by extension" class="w-sm"><option value="">all extensions</option></select>
+          <button id="btnRosterReload" type="button" class="btn">Reload roster</button>
+          <a id="rosterListLink" class="btn" target="_blank" rel="noopener" href="#">Open list</a>
+        </div>
+      </div>
+      <div id="rosterStats" class="kpis"></div>
+      <div class="card scroll">
+        <table>
+          <thead><tr><th>Alias</th><th>Extension</th><th>Version</th><th>Last seen</th><th>Last run</th><th>Runs</th><th>Install ID</th><th>State</th><th></th></tr></thead>
+          <tbody id="rosterBody"><tr><td colspan="9" class="muted">loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Settings ──────────────────────────────────────────────────────── -->
+    <section id="view-settings" class="view" hidden>
+      <div class="page-head"><div><h1>Settings</h1><p class="hint">Where the control files live and how this add-on writes to them.</p></div></div>
+      <div class="card">
+        <h2>GitHub token</h2>
+        <p class="hint">Needed only to <strong>save</strong>. A fine-grained personal access token for <code id="repoName"></code> with <em>Contents: Read and write</em>, stored privately in this add-on (not in any web page). <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create one on GitHub</a>.</p>
+        <div class="row">
+          <input id="token" type="password" placeholder="github_pat_…" autocomplete="off" aria-label="GitHub token" class="w-lg" />
+          <button id="btnSaveToken" type="button" class="btn btn-primary">Save token</button>
+          <button id="btnClearToken" type="button" class="btn">Forget</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>How it works</h2>
+        <p class="hint">Each card edits <code id="branchPath"></code> on the <code id="branchName"></code> branch through the GitHub contents API. Installs re-read that file every 15 minutes and before each run, so a saved change reaches everyone within a quarter of an hour. The older <a id="controlPageLink" target="_blank" rel="noopener" href="#">GitHub Pages admin page</a> and <code>.github/scripts/control.ps1</code> edit the same files and keep working.</p>
+        <p class="hint">Site access: Firefox grants an installed add-on access to SharePoint and GitHub only when asked. If the roster or a save fails with a permission error, use <strong>Grant site access</strong> in the sidebar.</p>
+      </div>
+    </section>
+  </div>
+</div>
 
 <template id="tplExt">
-  <section class="card ext">
-    <div class="row between">
-      <h2><span class="name"></span> <span class="ver pill pill-muted"></span></h2>
-      <span class="state pill" title="Saved state (what installs currently see)"></span>
+  <div class="ext">
+    <div class="page-head">
+      <div><h1><span class="name"></span> <span class="state pill" title="Saved state (what installs currently see)"></span></h1><p class="hint sha"></p></div>
+      <div class="row"><span class="ver pill pill-muted"></span></div>
     </div>
-    <p class="hint sha"></p>
     <div class="err banner err" hidden></div>
     <div class="form">
-      <label class="switch"><input type="checkbox" class="f-enabled" /> Enabled for everyone</label>
-      <div class="field"><label>Message shown when disabled <input type="text" class="f-message" placeholder="e.g. Paused for maintenance until 15:00 — Mayowa" /></label></div>
-      <div class="field"><label>Notice shown while enabled (optional) <input type="text" class="f-notice" placeholder="e.g. New version out — check for updates" /></label></div>
-      <div class="field">
-        <label>Minimum version allowed <input type="text" class="f-minver w-xs" /></label>
-        <div class="row"><span class="hint latest"></span><button type="button" class="btn btn-sm f-minver-latest">Use latest</button></div>
+      <div class="kpis ext-kpis"></div>
+      <div class="two-col">
+        <div class="card">
+          <h2>Availability</h2>
+          <label class="switch"><input type="checkbox" class="f-enabled" /> Enabled for everyone</label>
+          <div class="field"><label>Message shown when disabled <input type="text" class="f-message" placeholder="e.g. Paused for maintenance until 15:00 — Mayowa" /></label></div>
+          <div class="field"><label>Notice shown while enabled (optional) <input type="text" class="f-notice" placeholder="e.g. New version out — check for updates" /></label></div>
+          <div class="field">
+            <label>Minimum version allowed <input type="text" class="f-minver w-xs" /></label>
+            <div class="row"><span class="hint latest"></span><button type="button" class="btn btn-sm f-minver-latest">Use latest</button></div>
+          </div>
+          <div class="field"><label>Admins <span class="hint">(aliases, comma-separated — see the Installs tab in Lobby Sweeper)</span> <input type="text" class="f-admins" placeholder="mayowas, jdoe" /></label></div>
+        </div>
+        <div class="card">
+          <h2>Per-user overrides <span class="hint">(SMC alias, lowercase)</span></h2>
+          <table class="users"><thead><tr><th>Alias</th><th>State</th><th>Message</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="row">
+            <input type="text" class="f-newuser w-sm" placeholder="alias" aria-label="Alias" />
+            <input type="text" class="f-newuser-msg w-md" placeholder="message (optional)" aria-label="Message for this user" />
+            <button type="button" class="btn btn-sm btn-danger f-adduser-off">Disable user</button>
+            <button type="button" class="btn btn-sm f-adduser-on">Allow user (override global off)</button>
+          </div>
+          <h2>Per-install overrides <span class="hint">(install ID — see the Installs table below)</span></h2>
+          <table class="installs"><thead><tr><th>Install ID</th><th>State</th><th>Message</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="row">
+            <input type="text" class="f-newinst w-sm" placeholder="install id" aria-label="Install ID" />
+            <input type="text" class="f-newinst-msg w-md" placeholder="message (optional)" aria-label="Message for this install" />
+            <button type="button" class="btn btn-sm btn-danger f-addinst-off">Disable install</button>
+            <button type="button" class="btn btn-sm f-addinst-on">Allow install</button>
+          </div>
+        </div>
       </div>
-      <div class="field"><label>Admins <span class="hint">(aliases, comma-separated — see the Installs tab in Lobby Sweeper)</span> <input type="text" class="f-admins" placeholder="mayowas, jdoe" /></label></div>
 
-      <h3>Per-user overrides <span class="hint">(SMC alias, lowercase)</span></h3>
-      <table class="users"><thead><tr><th>Alias</th><th>State</th><th>Message</th><th></th></tr></thead><tbody></tbody></table>
-      <div class="row">
-        <input type="text" class="f-newuser w-sm" placeholder="alias" aria-label="Alias" />
-        <input type="text" class="f-newuser-msg w-md" placeholder="message (optional)" aria-label="Message for this user" />
-        <button type="button" class="btn btn-sm btn-danger f-adduser-off">Disable user</button>
-        <button type="button" class="btn btn-sm f-adduser-on">Allow user (override global off)</button>
+      <div class="savebar">
+        <div class="dirtybar dirtymsg" hidden></div>
+        <div class="row end">
+          <button type="button" class="btn f-revert">Revert</button>
+          <button type="button" class="btn btn-primary f-save">Save to GitHub</button>
+        </div>
       </div>
 
-      <h3>Per-install overrides <span class="hint">(install ID — see the Installs table above)</span></h3>
-      <table class="installs"><thead><tr><th>Install ID</th><th>State</th><th>Message</th><th></th></tr></thead><tbody></tbody></table>
-      <div class="row">
-        <input type="text" class="f-newinst w-sm" placeholder="install id" aria-label="Install ID" />
-        <input type="text" class="f-newinst-msg w-md" placeholder="message (optional)" aria-label="Message for this install" />
-        <button type="button" class="btn btn-sm btn-danger f-addinst-off">Disable install</button>
-        <button type="button" class="btn btn-sm f-addinst-on">Allow install</button>
+      <div class="card">
+        <h2>Installs of this add-on <span class="hint ext-roster-meta"></span></h2>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Alias</th><th>Version</th><th>Last seen</th><th>Last run</th><th>Runs</th><th>Install ID</th><th>State</th><th></th></tr></thead>
+            <tbody class="ext-roster"></tbody>
+          </table>
+        </div>
       </div>
 
-      <details><summary class="hint">Raw JSON</summary><textarea class="raw" spellcheck="false" aria-label="Raw control.json"></textarea><div class="row"><button type="button" class="btn btn-sm f-apply-raw">Apply raw JSON to form</button></div></details>
-
-      <div class="dirtybar dirtymsg" hidden></div>
-      <div class="row end">
-        <button type="button" class="btn f-revert">Revert</button>
-        <button type="button" class="btn btn-primary f-save">Save to GitHub</button>
-      </div>
+      <details class="card"><summary>Raw JSON</summary><textarea class="raw" spellcheck="false" aria-label="Raw control.json"></textarea><div class="row"><button type="button" class="btn btn-sm f-apply-raw">Apply raw JSON to form</button></div></details>
     </div>
-  </section>
+  </div>
 </template>
 
 <script type="module" src="control.js"></script>
