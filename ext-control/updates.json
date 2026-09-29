@@ -19,6 +19,15 @@
               "strict_min_version": "115.0"
             }
           }
+        },
+        {
+          "version": "0.1.2",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ext-control/ext-control-0.1.2.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
         }
       ]
     }
