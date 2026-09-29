@@ -349,6 +349,11 @@ export async function sweepOutcomes(team, { days } = {}) {
   const isPlaceholder = (c) => placeholders.has(c) || prefixes.some((p) => c.startsWith(p));
   const cutoff = Date.now() - windowDays * 86_400_000;
 
+  // Once FMC reports one of these the run is finished, so its carrier can't
+  // change again and the record stops being re-checked.
+  const TERMINAL_STATUSES = new Set(["COMPLETED", "ARRIVED_AT_FINAL_DESTINATION", "CANCELLED"]);
+  const isSettled = (rec) => TERMINAL_STATUSES.has(String(rec.final_status ?? "").trim().toUpperCase());
+
   const idx = await loadIndex(cfg.key);
 
   // Retention: seen-only records (never worked) are dropped `retentionDays`
@@ -365,10 +370,17 @@ export async function sweepOutcomes(team, { days } = {}) {
     }
   }
 
-  // Every tracked run (worked or just seen) that isn't covered yet.
+  // Every tracked run (worked or just seen) whose carrier can still change.
+  //
+  // Covered runs ARE re-checked: a run can be re-tendered to a different
+  // carrier after we first saw one, and FMC's status keeps moving. Freezing
+  // final_carrier at first detection left the record (and the Recently-covered
+  // view, the Runs tab and the history CSV) showing a carrier FMC had since
+  // replaced. A run is only retired once FMC reports a terminal state, at which
+  // point the carrier is settled.
   const candidates = [];
   for (const rec of idx.values()) {
-    if (rec.covered_at) continue;
+    if (rec.covered_at && isSettled(rec)) continue;
     if (!isWorked(rec) && !rec.first_seen_at) continue; // nothing to track
     if (!String(rec.vrid ?? "").trim()) continue;
     if (latestActivityMs(rec) < cutoff) continue;
@@ -394,6 +406,7 @@ export async function sweepOutcomes(team, { days } = {}) {
   const now = nowIso();
   let covered = 0;
   let coveredMs = 0;
+  let recarriered = 0;
   let changed = expired > 0;
   for (const rec of candidates) {
     const f = fmc[String(rec.vrid).trim()];
@@ -412,13 +425,32 @@ export async function sweepOutcomes(team, { days } = {}) {
       changed = true;
     }
     if (isReal) {
-      rec.final_carrier = carrier;
-      rec.final_carrier_name = f.carrier_name || null;
-      rec.covered_at = now;
-      covered += 1;
-      if (truthy(rec.is_manual_source)) coveredMs += 1;
-      changed = true;
+      const firstTime = !rec.covered_at;
+      if (rec.final_carrier !== carrier) {
+        // Re-tendered (or our first real carrier for this run).
+        if (!firstTime) {
+          log.info("outcomes", `${rec.vrid}: carrier ${rec.final_carrier} → ${carrier}`);
+          recarriered += 1;
+        }
+        rec.final_carrier = carrier;
+        rec.final_carrier_name = f.carrier_name || null;
+        changed = true;
+      } else if ((f.carrier_name || null) !== (rec.final_carrier_name || null)) {
+        rec.final_carrier_name = f.carrier_name || null;
+        changed = true;
+      }
+      if (firstTime) {
+        // covered_at is set ONCE — it's the "time to cover" anchor and drives
+        // the Recently-covered window. Re-checks must never move it.
+        rec.covered_at = now;
+        covered += 1;
+        if (truthy(rec.is_manual_source)) coveredMs += 1;
+        changed = true;
+      }
     }
+    // A covered run that now reports a placeholder again (re-tender in flight)
+    // keeps its stored carrier: flipping it back to Open would corrupt the
+    // MS-vs-RLB attribution and the time-to-cover metric.
   }
   if (changed) await saveIndex(cfg.key, idx);
 
@@ -427,7 +459,8 @@ export async function sweepOutcomes(team, { days } = {}) {
     covered,
     coveredMs,
     coveredRlb: covered - coveredMs,
-    open: candidates.length - covered,
+    recarriered,
+    open: candidates.filter((r) => !r.covered_at).length,
     expired,
   };
   log.info("outcomes", `${cfg.key}: ${JSON.stringify(result)}`);

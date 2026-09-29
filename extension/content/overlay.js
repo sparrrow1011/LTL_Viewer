@@ -546,7 +546,8 @@
       out.push({
         ...rec,
         _fromRecord: true, // already holds its snapshot; don't send one back
-        // Show the carrier that actually took it, and FMC's status at cover time.
+        // Carrier/status as at the last sweep. refreshCoveredFromFmc()
+        // overwrites these with live FMC values when the view is opened.
         vehicle_carrier: rec.final_carrier || rec.vehicle_carrier,
         carrier_name: rec.final_carrier_name || rec.carrier_name,
         vehicle_execution_status: rec.final_status || rec.vehicle_execution_status,
@@ -683,6 +684,23 @@
       viewMode === "covered"
         ? "Return to the loads that still need sourcing"
         : `Runs that got a carrier in the last ${COVERED_DAYS} days. Tick Manual Source on the ones you sourced.`;
+  }
+
+  // The covered rows come from stored records, i.e. FMC as of the last sweep.
+  // Carriers change (re-tender), so re-validate against live FMC when the view
+  // is opened. Best-effort: on failure the stored values are still shown.
+  async function refreshCoveredFromFmc() {
+    const rows = state.covered || [];
+    if (!rows.length) return;
+    try {
+      setBusy(true);
+      setLoadingText(`Checking ${rows.length} covered run(s) on FMC…`);
+      await enrichFmcStatuses({ render: false, rows });
+    } catch (e) {
+      dlog(`covered-view FMC refresh skipped: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function setViewMode(mode) {
@@ -2469,9 +2487,15 @@
     });
     root.querySelector("#ltl-refresh").addEventListener("click", fetchData);
     root.querySelector("#ltl-shippers").addEventListener("click", onShippersClick);
-    root.querySelector("#ltl-covered").addEventListener("click", () =>
-      setViewMode(viewMode === "covered" ? "sourcing" : "covered")
-    );
+    root.querySelector("#ltl-covered").addEventListener("click", async () => {
+      const goingToCovered = viewMode !== "covered";
+      setViewMode(goingToCovered ? "covered" : "sourcing");
+      // Live FMC check on entry, then re-render with the fresh carrier/status.
+      if (goingToCovered) {
+        await refreshCoveredFromFmc();
+        applySearchAndRender();
+      }
+    });
     root.querySelector("#ltl-team-badge").addEventListener("click", showTeamPicker);
     root.querySelector("#ltl-eml").addEventListener("click", onSendEml);
     root.querySelector("#ltl-marksent").addEventListener("click", onMarkSent);
