@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Extension Control",
+  "version": "0.1.0",
+  "description": "Admin console for the team's Firefox add-ons: enable/disable them globally, per user or per install, set notices and minimum versions, and see who has what installed. Edits control.json on the repo's updates branch.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ext-control@internal",
+      "strict_min_version": "115.0",
+      "update_url": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ext-control/updates.json",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
+    "https://amazongbr.sharepoint.com/*"
+  ],
+  "background": {
+    "scripts": ["background/background.js"],
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Extension Control",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://amazongbr.sharepoint.com/sites/AmazonFreightOperations/*"],
+      "js": ["content/sp-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  }
+}

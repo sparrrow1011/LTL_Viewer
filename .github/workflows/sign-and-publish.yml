@@ -18,6 +18,7 @@ on:
       - "extension/**"
       - "HC_Calculator/**"
       - "runs/**"
+      - "control_extension/**"
       - ".github/workflows/sign-and-publish.yml"
       - ".github/scripts/publish-update.mjs"
   workflow_dispatch:
@@ -25,7 +26,7 @@ on:
       which:
         description: "Which extension(s) to sign"
         type: choice
-        options: [all, lobby-sweeper, ms-viewer, hc-calculator, all-runs]
+        options: [all, lobby-sweeper, ms-viewer, hc-calculator, all-runs, ext-control]
         default: all
 
 permissions:
@@ -43,6 +44,7 @@ jobs:
       viewer: ${{ steps.f.outputs.viewer }}
       hc: ${{ steps.f.outputs.hc }}
       runs: ${{ steps.f.outputs.runs }}
+      control: ${{ steps.f.outputs.control }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 2 }
@@ -57,6 +59,7 @@ jobs:
             echo "viewer=$([ "$all" = true ] || [ "$W" = ms-viewer ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
             echo "hc=$([ "$all" = true ] || [ "$W" = hc-calculator ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
             echo "runs=$([ "$all" = true ] || [ "$W" = all-runs ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "control=$([ "$all" = true ] || [ "$W" = ext-control ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED=$(git diff --name-only HEAD~1 HEAD || git ls-files)
@@ -64,10 +67,11 @@ jobs:
           echo "viewer=$(echo "$CHANGED" | grep -q '^extension/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "hc=$(echo "$CHANGED" | grep -q '^HC_Calculator/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "runs=$(echo "$CHANGED" | grep -q '^runs/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "control=$(echo "$CHANGED" | grep -q '^control_extension/' && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   sign:
     needs: changes
-    if: needs.changes.outputs.sweeper == 'true' || needs.changes.outputs.viewer == 'true' || needs.changes.outputs.hc == 'true' || needs.changes.outputs.runs == 'true'
+    if: needs.changes.outputs.sweeper == 'true' || needs.changes.outputs.viewer == 'true' || needs.changes.outputs.hc == 'true' || needs.changes.outputs.runs == 'true' || needs.changes.outputs.control == 'true'
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 1 # AMO signing + pushing to the same branch: keep sequential
@@ -86,6 +90,9 @@ jobs:
           - slug: all-runs
             dir: runs
             enabled: ${{ needs.changes.outputs.runs }}
+          - slug: ext-control
+            dir: control_extension
+            enabled: ${{ needs.changes.outputs.control }}
     steps:
       - name: Skip if unchanged
         if: matrix.enabled != 'true'
@@ -170,7 +177,8 @@ jobs:
           XPI=$(ls out/*.xpi | head -n1)
           node .github/scripts/publish-update.mjs "${{ matrix.slug }}" "${{ matrix.dir }}" "$XPI" updates
           # Remote-control file: create with permissive defaults if absent; never overwrite (edited by hand / admin page).
-          if [ ! -f "updates/${{ matrix.slug }}/control.json" ]; then
+          # Add-ons without a seed (the Extension Control admin tool) are not remotely controlled.
+          if [ ! -f "updates/${{ matrix.slug }}/control.json" ] && [ -f ".github/control/${{ matrix.slug }}.json" ]; then
             cp ".github/control/${{ matrix.slug }}.json" "updates/${{ matrix.slug }}/control.json"
             echo "seeded control.json"
           fi
