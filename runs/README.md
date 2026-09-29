@@ -147,8 +147,11 @@ copies auto-update from the manifest's `update_url`. **Bump `manifest.json`
 version first** or the job fails on purpose.
 
 Remote control: `.github/control/all-runs.json` seeds `all-runs/control.json` on
-the `updates` branch the first time; after that edit it there, on the admin page,
-or with `.github/scripts/control.ps1 all-runs disable-user <alias> "<message>"`.
+the `updates` branch the first time; after that edit it with the Extension Control
+add-on (`control_extension/`), on the admin page, or with
+`.github/scripts/control.ps1 all-runs disable-user <alias> "<message>"`. Installs
+re-read it every 15 minutes and before a load unless it was read within the last
+minute; the cached verdict is re-applied to the current alias/version on every check.
 
 ## Debugging
 
