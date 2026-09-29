@@ -2295,7 +2295,7 @@
           <button type="button" data-mode="dark" aria-pressed="false" title="Dark">☾ Dark</button>
           <button type="button" data-mode="system" aria-pressed="false" title="Follow the system setting">System</button>
         </div>
-        <span class="ltl-brand" title="Manual Sourcing Viewer">MS Viewer</span>
+        <span class="ltl-brand" id="ltl-brand" title="Manual Sourcing Viewer">MS Viewer</span>
       </div>
       <div id="ltl-toolbar" class="ltl-toolbar">
         <input type="search" id="ltl-search" placeholder="Search (comma = VRID/order exact)" />
@@ -2405,6 +2405,15 @@
       </div>
     `;
     document.body.appendChild(root);
+
+    // Version in the header, so a user reporting a problem (or a minVersion
+    // block from control.json) can be matched to a release without digging
+    // through about:addons. Set as text, not interpolated into innerHTML.
+    const brand = root.querySelector("#ltl-brand");
+    if (brand) {
+      brand.textContent = extVersion() ? `MS Viewer v${extVersion()}` : "MS Viewer";
+      brand.title = `Manual Sourcing Viewer${extVersion() ? ` v${extVersion()}` : ""}`;
+    }
 
     // Default window: today 00:00 → tomorrow 00:05 (narrow = fast load).
     root.querySelector("#ltl-start").value = todayIso();
@@ -2658,6 +2667,16 @@
   async function openPanel() {
     ensureUser(); // fire-and-forget; needed for manual_source_by / email_sent_by
     await showTeamPicker();
+  }
+
+  // Installed version, straight from the manifest (so it can never drift from
+  // what's actually running). Empty string if unavailable.
+  function extVersion() {
+    try {
+      return browser.runtime.getManifest().version || "";
+    } catch {
+      return "";
+    }
   }
 
   // ── auto-refresh ──────────────────────────────────────────────────────────
