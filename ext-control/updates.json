@@ -1,0 +1,17 @@
+{
+  "addons": {
+    "ext-control@internal": {
+      "updates": [
+        {
+          "version": "0.1.0",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ext-control/ext-control-0.1.0.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
