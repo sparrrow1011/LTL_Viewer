@@ -45,14 +45,49 @@ function headers(token, extra = {}) {
   return h;
 }
 
-/** Who the stored token belongs to. { login } or { login:null } when no token; throws if rejected. */
+/**
+ * Who the stored token belongs to, and whether it can write to the repo.
+ * { login, hasToken, canWrite, writeProblem } — canWrite is null when GitHub
+ * didn't say. Throws only if the token itself is rejected.
+ *
+ * A fine-grained token passes /user yet can't write when it was created with
+ * "Public repositories (read-only)" access, without this repo selected, or
+ * with Contents left at "Read" — so we look at the repo's `permissions.push`.
+ */
 export async function whoami() {
   const token = await getToken();
-  if (!token) return { login: null, hasToken: false };
+  if (!token) return { login: null, hasToken: false, canWrite: null, writeProblem: null };
   const r = await fetch("https://api.github.com/user", { headers: headers(token), cache: "no-store" });
   if (!r.ok) throw new GitHubError(`token rejected by GitHub (HTTP ${r.status})`, r.status, await safeText(r));
   const u = await r.json();
-  return { login: u.login, hasToken: true };
+  let canWrite = null, writeProblem = null;
+  try {
+    const rr = await fetch(`https://api.github.com/repos/${Config.OWNER}/${Config.REPO}`, { headers: headers(token), cache: "no-store" });
+    if (rr.status === 404) {
+      canWrite = false;
+      writeProblem = `the token has no access to ${Config.OWNER}/${Config.REPO} — edit it: Repository access → Only select repositories → ${Config.REPO}`;
+    } else if (rr.ok) {
+      const repo = await rr.json();
+      if (repo.permissions && typeof repo.permissions.push === "boolean") {
+        canWrite = repo.permissions.push;
+        if (!canWrite) writeProblem = `the token is read-only on ${Config.REPO} — edit it: Repository permissions → Contents → Read and write (and not "Public repositories (read-only)")`;
+      }
+    }
+  } catch (_) {
+    /* leave canWrite null — the save path reports precisely anyway */
+  }
+  return { login: u.login, hasToken: true, canWrite, writeProblem };
+}
+
+/** GitHub's own "message" from an error body, if any. */
+async function apiMessage(res) {
+  const text = await safeText(res);
+  try {
+    const m = JSON.parse(text).message;
+    return m ? ` GitHub says: "${m}".` : "";
+  } catch {
+    return text ? ` ${text}` : "";
+  }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -117,17 +152,17 @@ export async function writeFile(path, text, message, sha) {
     headers: headers(token, { "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
-  if (r.status === 403) {
+  if (r.status === 403 || r.status === 404) {
+    // 404 on a PUT is how GitHub answers a fine-grained token that wasn't granted this repo.
     throw new GitHubError(
-      `Write refused (403): the token needs "Contents: Read and write" on ${Config.OWNER}/${Config.REPO}.`,
-      403,
-      await safeText(r)
+      `Write refused (HTTP ${r.status}).${await apiMessage(r)} On the token page set Repository access → Only select repositories → ${Config.REPO} (not "Public repositories (read-only)") and Repository permissions → Contents → Read and write.`,
+      r.status
     );
   }
   if (r.status === 409 || r.status === 422) {
-    throw new GitHubError(`${path} changed on GitHub since you loaded it (HTTP ${r.status}). Reload and re-apply your change.`, r.status, await safeText(r));
+    throw new GitHubError(`${path} changed on GitHub since you loaded it (HTTP ${r.status}).${await apiMessage(r)} Reload and re-apply your change.`, r.status);
   }
-  if (!r.ok) throw new GitHubError(`write ${path}: HTTP ${r.status}`, r.status, await safeText(r));
+  if (!r.ok) throw new GitHubError(`write ${path}: HTTP ${r.status}.${await apiMessage(r)}`, r.status);
   const out = await r.json();
   return { sha: out.content && out.content.sha, commit: out.commit && out.commit.sha };
 }

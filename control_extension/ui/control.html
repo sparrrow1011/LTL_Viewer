@@ -75,8 +75,20 @@
         <div class="row">
           <input id="token" type="password" placeholder="github_pat_…" autocomplete="off" aria-label="GitHub token" class="w-lg" />
           <button id="btnSaveToken" type="button" class="btn btn-primary">Save token</button>
+          <button id="btnRecheckToken" type="button" class="btn">Re-check token</button>
           <button id="btnClearToken" type="button" class="btn">Forget</button>
         </div>
+        <div id="tokenStatus" class="banner err" hidden></div>
+        <details>
+          <summary class="hint">How to create the token (fine-grained)</summary>
+          <ol class="hint">
+            <li>GitHub → Settings → Developer settings → Personal access tokens → <strong>Fine-grained tokens</strong> → Generate new token.</li>
+            <li><strong>Repository access</strong>: <em>Only select repositories</em> → pick <code>LTL_Viewer</code>. Do <strong>not</strong> use "Public repositories (read-only)" — that option can never write.</li>
+            <li><strong>Repository permissions</strong> → <strong>Contents</strong> → <em>Read and write</em>. Nothing else is needed.</li>
+            <li>Generate, paste it above, Save token. The pill in the sidebar should say "can write".</li>
+          </ol>
+          <p class="hint">Editing an existing token's access or permissions keeps its value — after changing it on GitHub just click <strong>Re-check token</strong> here.</p>
+        </details>
       </div>
       <div class="card">
         <h2>How it works</h2>

@@ -32,6 +32,7 @@ let cfg = null;
 const state = {}; // slug → { name, doc, orig, sha, latest, card, error }
 let roster = null; // { rows, listUrl, fetchedAt }
 let login = null;
+let tokenProblem = null; // why the token can't write, if known
 let view = { name: "overview", slug: null };
 
 const extName = (slug) => ((cfg && cfg.exts.find((x) => x.slug === slug)) || { name: slug }).name;
@@ -146,10 +147,26 @@ async function whoami() {
   try {
     const r = await call("gh:whoami");
     login = r.login;
-    pill.className = `pill ${r.hasToken ? "pill-good" : "pill-muted"}`;
-    pill.textContent = r.hasToken ? `GitHub: ${r.login}` : "GitHub: read-only (no token)";
+    tokenProblem = r.writeProblem || null;
+    if (!r.hasToken) {
+      pill.className = "pill pill-muted";
+      pill.textContent = "GitHub: read-only (no token)";
+    } else if (r.canWrite === false) {
+      pill.className = "pill pill-bad";
+      pill.textContent = `GitHub: ${r.login} · token can't write`;
+      pill.title = r.writeProblem || "";
+    } else {
+      pill.className = "pill pill-good";
+      pill.textContent = `GitHub: ${r.login}${r.canWrite ? " · can write" : ""}`;
+      pill.title = "";
+    }
+    $("#tokenStatus").hidden = !tokenProblem;
+    $("#tokenStatus").textContent = tokenProblem ? `Token problem: ${tokenProblem}.` : "";
   } catch (e) {
     login = null;
+    tokenProblem = e.message;
+    $("#tokenStatus").hidden = false;
+    $("#tokenStatus").textContent = `Token rejected: ${e.message}`;
     pill.className = "pill pill-bad";
     pill.textContent = `GitHub token rejected (${e.message})`;
   }
@@ -170,13 +187,19 @@ function wireChrome() {
     await call("gh:setToken", { token: t });
     $("#token").value = "";
     await whoami();
-    banner(login ? "ok" : "err", login ? `Token saved — signed in as <strong>${esc(login)}</strong>.` : "Token saved but GitHub rejected it — check it has access to the repo.");
+    if (!login) banner("err", "Token saved but GitHub rejected it — check it has access to the repo.");
+    else if (tokenProblem) banner("warn", `Token saved — signed in as <strong>${esc(login)}</strong>, but ${esc(tokenProblem)}.`);
+    else banner("ok", `Token saved — signed in as <strong>${esc(login)}</strong>, write access confirmed.`);
   });
   $("#btnClearToken").addEventListener("click", async () => {
     await call("gh:setToken", { token: "" });
     $("#token").value = "";
     await whoami();
     banner("ok", "Token forgotten. Saving is disabled until you set another.");
+  });
+  $("#btnRecheckToken").addEventListener("click", async () => {
+    await whoami();
+    banner(tokenProblem ? "err" : "ok", tokenProblem ? `Still a problem: ${esc(tokenProblem)}.` : `Token OK — signed in as <strong>${esc(login)}</strong> with write access.`);
   });
   $("#btnReload").addEventListener("click", () => loadAll());
   $("#btnRosterReload").addEventListener("click", () => loadRoster());
@@ -323,6 +346,11 @@ async function save(slug) {
     showView("settings");
     $("#token").focus();
     banner("warn", "Set a GitHub token first — needed to write to the repo.");
+    return;
+  }
+  if (tokenProblem) {
+    showView("settings");
+    banner("err", `Can't save: ${esc(tokenProblem)}. Fix the token on GitHub, then click <strong>Re-check token</strong>.`);
     return;
   }
   readForm(slug);
