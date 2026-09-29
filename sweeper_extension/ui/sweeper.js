@@ -986,6 +986,19 @@ async function renderControl(refresh = false) {
 }
 
 async function init() {
+  // Running version in the header, from the manifest so it can never drift
+  // from what's installed (matches MS Viewer / HC Calculator / TMS Viewer).
+  try {
+    const v = browser.runtime.getManifest().version;
+    const h = document.getElementById("brandTitle");
+    if (v && h) {
+      h.textContent = `Lobby Sweeper v${v}`;
+      h.title = `Lobby Sweeper v${v}`;
+    }
+  } catch {
+    /* leave the plain name */
+  }
+
   app.config = await call("getConfig");
   app.settings = await call("getSettings");
   renderSettings();
