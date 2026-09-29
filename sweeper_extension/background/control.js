@@ -23,8 +23,8 @@
  * keeps the last verdict (never lock people out on a network blip); no cached
  * verdict at all = allowed.
  *
- * This file is shared verbatim between sweeper_extension/ and extension/ —
- * keep them identical. Only `init()` args differ.
+ * This file is shared verbatim between sweeper_extension/, extension/,
+ * HC_Calculator/ and runs/ — keep them identical. Only `init()` args differ.
  */
 
 const KEY = "control";
@@ -46,7 +46,7 @@ export function init(options) {
 
 async function getStored() {
   const got = await browser.storage.local.get(KEY);
-  return got[KEY] || { installId: null, alias: null, verdict: null, doc: null, fetchedAt: null, error: null };
+  return got[KEY] || { installId: null, alias: null, verdict: null, doc: null, fetchedAt: null, version: undefined, error: null };
 }
 
 async function setStored(patch) {
@@ -134,13 +134,13 @@ export async function refresh() {
       if (res.status === 404) {
         // No control file published yet = nothing is restricted.
         const v = { ...ALLOW, ...id, fetchedAt: Date.now() };
-        await setStored({ verdict: v, doc: null, fetchedAt: Date.now(), error: null });
+        await setStored({ verdict: v, doc: null, fetchedAt: Date.now(), version: cfg.version, error: null });
         return v;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const doc = await res.json();
       const v = { ...evaluate(doc, { ...id, version: cfg.version }), ...id, fetchedAt: Date.now() };
-      await setStored({ verdict: v, doc, fetchedAt: Date.now(), error: null });
+      await setStored({ verdict: v, doc, fetchedAt: Date.now(), version: cfg.version, error: null });
       if (!v.allowed) cfg.log.warn("control", `disabled (${v.reason}): ${v.message}`);
       else cfg.log.debug("control", `allowed (alias ${id.alias || "?"}, install ${id.installId})`);
       return v;
@@ -155,17 +155,29 @@ export async function refresh() {
   return _refreshing;
 }
 
-/** Verdict to enforce right now: refreshes if stale (older than refreshMinutes). */
-export async function check({ force = false } = {}) {
+/**
+ * Verdict to enforce right now. Re-reads control.json when the cached one is
+ * older than `maxAgeMs` (default: refreshMinutes) or when forced.
+ */
+export async function check({ force = false, maxAgeMs = null } = {}) {
   const s = await getStored();
-  const stale = !s.fetchedAt || Date.now() - s.fetchedAt > cfg.refreshMinutes * 60_000;
-  if (force || stale || !s.verdict) return refresh();
+  const maxAge = maxAgeMs == null ? cfg.refreshMinutes * 60_000 : maxAgeMs;
+  const stale = !s.fetchedAt || Date.now() - s.fetchedAt > maxAge;
+  // A verdict computed by a previous version is meaningless after an update
+  // (typically: "blocked: needs ≥ x" cached by the version that was just replaced).
+  const otherVersion = s.version !== cfg.version;
+  if (force || stale || otherVersion || !s.verdict) return refresh();
   return s.verdict;
 }
 
+// A run re-reads control.json unless it was read within the last minute. The
+// periodic alarm alone meant a manual run could use a verdict up to 15 minutes
+// old, so a fresh disable didn't land until the next alarm.
+const RUN_MAX_AGE_MS = 60_000;
+
 /** Throw a tagged error if this install is not allowed to run. */
 export async function assertAllowed(what = "run") {
-  const v = await check();
+  const v = await check({ maxAgeMs: RUN_MAX_AGE_MS });
   if (v.allowed) return v;
   const err = new Error(v.message);
   err.controlBlocked = true;

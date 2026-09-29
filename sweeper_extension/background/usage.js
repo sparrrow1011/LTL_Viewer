@@ -24,7 +24,7 @@
 
 const LIST = "Extension_Installs";
 const COLUMNS = ["Extension", "Alias", "Version", "FirstSeen", "LastSeen", "LastRun", "Runs", "Browser"];
-const KEY = "usage"; // storage: { firstSeen, lastReportAt, itemId, runs, lastRun }
+const KEY = "usage"; // storage: { firstSeen, lastReportAt, itemId, runs, lastRun, version (last reported) }
 const REPORT_MINUTES = 60;
 
 let cfg = {
@@ -148,7 +148,10 @@ export async function report(reason = "tick", { force = false, ran = false } = {
         lastRun = new Date(now).toISOString();
         await store({ runs, lastRun });
       }
-      if (!force && st.lastReportAt && now - st.lastReportAt < REPORT_MINUTES * 60_000) {
+      // Always report a version change right away: otherwise the roster keeps
+      // showing the old version (and "blocked") for up to an hour after an update.
+      const versionChanged = st.version !== cfg.version;
+      if (!force && !versionChanged && st.lastReportAt && now - st.lastReportAt < REPORT_MINUTES * 60_000) {
         cfg.log.debug("usage", `report skipped (${reason}) — last ${Math.round((now - st.lastReportAt) / 60000)} min ago`);
         return { skipped: true };
       }
@@ -209,7 +212,7 @@ export async function report(reason = "tick", { force = false, ran = false } = {
           itemId = created && created.Id;
         }
       }
-      await store({ firstSeen, lastReportAt: now, itemId });
+      await store({ firstSeen, lastReportAt: now, itemId, version: cfg.version });
       cfg.log.info("usage", `reported (${reason}): ${alias || "no alias"} · ${cfg.slug} ${cfg.version} · runs ${runs}`);
       return { ok: true, itemId };
     } catch (e) {
