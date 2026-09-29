@@ -27,6 +27,17 @@ export async function getRequester() {
 }
 
 /**
+ * Signed-in alias, opening SMC in the background if no tab is there yet. Used
+ * right before a run — the run opens SMC anyway — so the remote-control alias
+ * rules apply to the very first run of a fresh install too. Null when SMC
+ * can't be reached (the run would fail on SMC as well).
+ */
+export async function ensureRequester() {
+  const resp = await bridge.call({ action: "smc:requester" });
+  return resp && resp.ok ? resp.requester : null;
+}
+
+/**
  * fetch_paragon_queries window: [today - daysBack, today + daysForward] as
  * whole UTC days.
  */

@@ -163,11 +163,20 @@ export async function check({ force = false, maxAgeMs = null } = {}) {
   const s = await getStored();
   const maxAge = maxAgeMs == null ? cfg.refreshMinutes * 60_000 : maxAgeMs;
   const stale = !s.fetchedAt || Date.now() - s.fetchedAt > maxAge;
-  // A verdict computed by a previous version is meaningless after an update
-  // (typically: "blocked: needs ≥ x" cached by the version that was just replaced).
-  const otherVersion = s.version !== cfg.version;
-  if (force || stale || otherVersion || !s.verdict) return refresh();
-  return s.verdict;
+  if (force || stale || !s.verdict) return refresh();
+  if (!s.doc) return s.verdict; // no control file published (404) — nothing to re-evaluate
+  // The document is fresh enough, but the verdict may not be: the alias may
+  // have been learnt since (fresh install, SMC opened later) or the add-on
+  // updated. evaluate() is pure, so re-apply the stored document to the
+  // CURRENT identity and version instead of trusting a verdict computed for
+  // "unknown" or for the version that was just replaced.
+  const id = await identity();
+  const v = { ...evaluate(s.doc, { ...id, version: cfg.version }), ...id, fetchedAt: s.fetchedAt };
+  if (v.allowed !== s.verdict.allowed || v.reason !== s.verdict.reason || v.alias !== s.verdict.alias) {
+    await setStored({ verdict: v, version: cfg.version });
+    if (!v.allowed) cfg.log.warn("control", `disabled (${v.reason}) after re-evaluation: ${v.message}`);
+  }
+  return v;
 }
 
 // A run re-reads control.json unless it was read within the last minute. The

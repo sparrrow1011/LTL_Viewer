@@ -1067,7 +1067,7 @@ async function init() {
   $("btnCheckSessions").addEventListener("click", async () => {
     if (await checkPermissions()) checkSessions(false);
   });
-  $("schedToggle").addEventListener("change", (e) => saveSettings({ scheduleEnabled: e.target.checked }).catch((err) => banner("error", esc(err.message))));
+  $("schedToggle").addEventListener("change", (e) => saveSettings({ scheduleEnabled: e.target.checked }).catch((err) => banner("error", describeError(err, "Settings"))));
 
   $("sweepSearch").addEventListener("input", renderSweep);
   $("sweepFilter").addEventListener("change", renderSweep);
@@ -1081,7 +1081,7 @@ async function init() {
       await saveSettings(readSettingsForm());
       $("settingsSaved").textContent = `Saved ${new Date().toLocaleTimeString()}`;
     } catch (err) {
-      banner("error", esc(err.message));
+      banner("error", describeError(err, "Settings"));
     }
   });
   $("btnTestSlack").addEventListener("click", async () => {
@@ -1089,7 +1089,7 @@ async function init() {
       await call("testSlack", { webhook: $("setSlack").value.trim() });
       banner("ok", "Slack test message sent.");
     } catch (err) {
-      banner("error", esc(err.message));
+      banner("error", describeError(err, "Settings"));
     }
   });
   $("btnClearLog").addEventListener("click", async () => {

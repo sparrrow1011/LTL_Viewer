@@ -24,7 +24,7 @@
 
 const LIST = "Extension_Installs";
 const COLUMNS = ["Extension", "Alias", "Version", "FirstSeen", "LastSeen", "LastRun", "Runs", "Browser"];
-const KEY = "usage"; // storage: { firstSeen, lastReportAt, itemId, runs, lastRun, version (last reported) }
+const KEY = "usage"; // storage: { firstSeen, lastReportAt, itemId, runs, lastRun, version (last reported), alias (last known) }
 const REPORT_MINUTES = 60;
 
 let cfg = {
@@ -162,7 +162,9 @@ export async function report(reason = "tick", { force = false, ran = false } = {
       } catch (_) {
         /* offline SMC — leave blank */
       }
-      alias = alias ? String(alias).trim().toLowerCase() : "";
+      // Fall back to the alias learnt on an earlier report (SMC may simply not
+      // be open right now, e.g. the startup report just after Firefox opened).
+      alias = alias ? String(alias).trim().toLowerCase() : st.alias || "";
       const firstSeen = st.firstSeen || new Date(now).toISOString();
       const row = {
         slug: cfg.slug,
@@ -189,6 +191,9 @@ export async function report(reason = "tick", { force = false, ran = false } = {
       };
       const fields = { Title: `${cfg.slug}|${installId}` };
       for (const [t, v] of Object.entries(byTitle)) fields[map[t]] = v;
+      // Still unknown (never seen SMC on this install): don't blank out an alias
+      // the row may already carry — e.g. one written before this storage was reset.
+      if (!alias) delete fields[map.Alias];
 
       // Find our item (by remembered Id, else by Title) and MERGE; else POST.
       let itemId = st.itemId;
@@ -212,7 +217,7 @@ export async function report(reason = "tick", { force = false, ran = false } = {
           itemId = created && created.Id;
         }
       }
-      await store({ firstSeen, lastReportAt: now, itemId, version: cfg.version });
+      await store({ firstSeen, lastReportAt: now, itemId, version: cfg.version, ...(alias ? { alias } : {}) });
       cfg.log.info("usage", `reported (${reason}): ${alias || "no alias"} · ${cfg.slug} ${cfg.version} · runs ${runs}`);
       return { ok: true, itemId };
     } catch (e) {

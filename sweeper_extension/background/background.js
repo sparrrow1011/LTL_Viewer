@@ -90,6 +90,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
     await browser.alarms.clear(ALARM);
     return;
   }
+  await ensureIdentity();
   const verdict = await control.check({ force: true });
   if (!verdict.allowed) {
     log.warn("pipeline", `⏰ scheduled cycle refused by remote control (${verdict.reason}): ${verdict.message}`);
@@ -140,8 +141,28 @@ browser.action.onClicked.addListener(async () => {
  * Throws synchronously-ish if a job is already running so the page gets an
  * immediate "busy" answer.
  */
+/**
+ * Make sure the remote-control identity has an alias before a run. A fresh
+ * install (or one whose SMC tab was closed) has none, and a per-alias rule
+ * can't match "unknown" — so learn it from SMC first (the run opens SMC
+ * anyway). Never throws: if SMC is unreachable the run fails there instead.
+ */
+async function ensureIdentity() {
+  const id = await control.identity();
+  if (id.alias) return id;
+  try {
+    await smc.ensureRequester();
+  } catch (e) {
+    log.warn("control", `couldn't learn the SMC alias before the run: ${e.message}`);
+  }
+  return control.identity();
+}
+
 async function startJob(job, fn) {
   if (sweeper.isRunning()) throw new Error(`Already running: ${sweeper.isRunning()}`);
+  // The router already checked once; this second check runs AFTER the alias
+  // has been learnt, so a per-alias rule applies to a fresh install's first run.
+  await ensureIdentity();
   await control.assertAllowed(job); // throws with .controlBlocked when remotely disabled
   const p = fn();
   p.then(() => usage.report("run", { ran: true }), () => {});
@@ -216,6 +237,9 @@ const HANDLERS = {
 
   // CST shipper IDs: status (source/count), force re-read, manual CSV import.
   getShippers: async (msg) => {
+    // Reading the cached status is exempt (the page shows it while disabled);
+    // a forced SharePoint re-read is real work and needs the verdict.
+    if (msg.force) await control.assertAllowed("getShippers");
     const s = await shippers.getShipperIds({ force: !!msg.force });
     return { count: s.count, source: s.source, path: s.path, fetchedAt: s.fetchedAt, stale: !!s.stale, error: s.error || null, sample: s.ids.slice(0, 5) };
   },
@@ -308,6 +332,16 @@ const HANDLERS = {
   },
 };
 
+// Actions that stay available while remotely disabled, so the page can explain
+// itself and the admin can still see the install in the roster. Everything
+// else (runs, settings writes, Slack test, shipper import) is refused with
+// controlBlocked:true — same pattern as MS Viewer / HC Calculator / All Runs.
+const CONTROL_EXEMPT = new Set([
+  "getConfig", "getSettings", "getState", "checkSessions", "openSites", "openCase",
+  "controlStatus", "usageReport", "getShippers", "getLog", "clearLog", "setDebug", "cancelRun",
+  "paragon:bridge-ready", "smc:bridge-ready", "fmc:bridge-ready", "sp:bridge-ready",
+]);
+
 browser.runtime.onMessage.addListener((msg, sender) => {
   const action = msg && msg.action;
   // Bridge replies travel tab → background only via our own sendMessage; ignore
@@ -316,6 +350,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   if (!handler) return; // let other listeners (none) handle it
   if (action !== "getLog" && action !== "getState") log.debug("router", `→ ${action}`);
   return Promise.resolve()
+    .then(() => (CONTROL_EXEMPT.has(action) ? null : control.assertAllowed(action)))
     .then(() => handler(msg, sender))
     .then((data) => ({ ok: true, data }))
     .catch((err) => {
