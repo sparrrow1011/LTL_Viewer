@@ -10,6 +10,15 @@
               "strict_min_version": "140.0"
             }
           }
+        },
+        {
+          "version": "0.4.5",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/pg-tms-viewer/pg-tms-viewer-0.4.5.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "140.0"
+            }
+          }
         }
       ]
     }
