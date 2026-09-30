@@ -7,11 +7,6 @@
   "admins": [
     "mayowas"
   ],
-  "users": {
-    "jaydobag": {
-      "enabled": false,
-      "message": "Test disable"
-    }
-  },
+  "users": {},
   "installs": {}
 }
