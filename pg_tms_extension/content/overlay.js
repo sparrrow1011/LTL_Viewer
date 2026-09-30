@@ -79,6 +79,7 @@
   // SMC check result: { matches: {loadId: {orders:[...]}}, unmatched: [loadId], at: Date }
   let smc = null;
   let newOnly = false;
+  let filterTerms = []; // toolbar filter: every term must match somewhere in the row
   let accessMissing = []; // origins the add-on can't touch yet (see siteAccess)
   let extractMeta = { mapping: "", missing: [] }; // how tms.js mapped the columns
   let configError = ""; // background unreachable / failed at open
@@ -88,6 +89,34 @@
   const siteName = (r) => (cfg.siteNames[r.site] || r.siteName || r.site || "");
   const smcFor = (r) => (smc && smc.matches[r.loadId]) || null;
   const isNew = (r) => !!smc && !smc.matches[r.loadId] && !!r.loadId;
+  // PO data (Procurement Portal) attached to a row by Check, keyed by load.
+  const poFor = (r) => (smc && smc.po && smc.po[r.loadId]) || null;
+  // Destination (PP): the PO's delivery FC, else the TMS destination node/address.
+  const destPP = (r) => {
+    const p = poFor(r);
+    return (p && p.found && p.fcId) || r.destNode || r.destAddress || "";
+  };
+  // The portal renders the Vendor Delivery Dates in a FIXED GMT+1 (not DST), so
+  // e.g. 2026-10-06T00:00Z shows as "06/10/2026 01:00 GMT+1". Match that exactly
+  // so the extension and the portal always read identically.
+  const day = (v) => (v ? String(v).slice(0, 10) : "");
+  function fmtPortal(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const t = new Date(d.getTime() + 3600_000); // UTC+1, fixed
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(t.getUTCDate())}/${p(t.getUTCMonth() + 1)}/${t.getUTCFullYear()} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`;
+  }
+  // PO Window (PP): Earliest → Latest Vendor Delivery Date (portal GMT+1), else
+  // the TMS delivery window.
+  const windowPP = (r) => {
+    const p = poFor(r);
+    if (p && p.found && (p.windowStart || p.windowEnd)) {
+      return `${fmtPortal(p.windowStart)} → ${fmtPortal(p.windowEnd)} GMT+1`;
+    }
+    return r.poWindow || "";
+  };
 
   // ── columns ─────────────────────────────────────────────────────────────────
   const VIEW_COLUMNS = [
@@ -99,7 +128,27 @@
     { key: "smcDetails", label: "SMC order", render: renderSmcDetails, onlyAfterCheck: true },
     { key: "smcChecks", label: "SMC checks", render: renderSmcChecks, onlyAfterCheck: true },
     { key: "crdd", label: "CRDD (Pickup From)" },
-    { key: "poWindow", label: "PO Delivery Window" },
+    {
+      key: "poWindow",
+      label: "PO Window (PP)",
+      render: (r) => {
+        const p = poFor(r);
+        if (p && p.found && (p.windowStart || p.windowEnd)) {
+          return `${esc(fmtPortal(p.windowStart))} → ${esc(fmtPortal(p.windowEnd))} <span class="pg-muted">GMT+1</span> <span class="pg-pp">PP</span>`;
+        }
+        return esc(r.poWindow || "—"); // TMS window (already dd/mm/yyyy hh:mm)
+      },
+    },
+    {
+      key: "destPP",
+      label: "Destination (PP)",
+      render: (r) => {
+        const p = poFor(r);
+        const pp = p && p.found && p.fcId;
+        const v = destPP(r);
+        return `${esc(v || "—")}${pp ? ' <span class="pg-pp">PP</span>' : ""}`;
+      },
+    },
     { key: "appointment", label: "Appointment (ISA)" },
     // Pallets = Shipment Laden Length (M) rounded (what goes into SMC);
     // Theoretical Pallets stays in the tooltip / CSV.
@@ -139,6 +188,8 @@
     ["crdd", "CRDD"],
     ["deliveryFrom", "Delivery From"],
     ["deliveryTo", "Delivery To"],
+    ["poWindowPP", "PO Window (PP)"],
+    ["destinationPP", "Destination (PP)"],
     ["appointment", "Appointment ISA"],
     ["smcPallets", "Pallets (SMC)"],
     ["weight", "Weight (kg)"],
@@ -282,8 +333,30 @@
     s.innerHTML = html;
   }
 
+  // Text a row exposes to the filter (all the columns a user would search).
+  function rowHaystack(r) {
+    return [
+      r.po, r.loadId, r.site, siteName(r), r.status, r.originCity, r.destAddress,
+      r.destNode, r.crdd, r.poWindow, windowPP(r), destPP(r), r.smcOrderIds,
+      r.smcExecution, r.smcOrigin, r.smcCarrier, r.smcVrid, r.smcBol, r.idc,
+      r.customerName, r.shipmentId,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  }
+
   function visibleRows() {
-    return newOnly && smc ? lastRows.filter(isNew) : lastRows;
+    let rows = newOnly && smc ? lastRows.filter(isNew) : lastRows;
+    if (filterTerms.length) {
+      // OR across terms: paste several IDs (space/comma-separated) and see every
+      // row matching ANY of them.
+      rows = rows.filter((r) => {
+        const hay = rowHaystack(r);
+        return filterTerms.some((t) => hay.includes(t));
+      });
+    }
+    return rows;
   }
 
   function renderTable() {
@@ -331,8 +404,14 @@
     const d = cfg.smcOrderDefaults || {};
     const lastPrice = (settings.prices || {})[siteKey];
     const pickupDate = dateOf(r.crddIso) || new Date().toISOString().slice(0, 10);
-    const deliveryDate = dateOf(r.deliveryFromIso) || pickupDate;
     const pickupFromTms = timeOf(r.crddIso);
+    // Delivery defaults from the PO window (PP) when we have it — window end is
+    // the Latest Vendor Delivery Date — else the TMS delivery window.
+    const po = poFor(r);
+    const poEndDate = po && po.found ? dateOf(po.windowEnd) : "";
+    const poEndTime = po && po.found ? timeOf(po.windowEnd) : "";
+    const deliveryDate = poEndDate || dateOf(r.deliveryFromIso) || pickupDate;
+    const deliveryTimeDefault = (poEndTime && poEndTime !== "00:00" ? poEndTime : "") || d.deliveryTime || "12:00";
     const inputsHtml = `
       <table class="pg-kv">
         <tr><th>Shipper reference</th><td><b>${esc(r.loadId)}</b> <span class="pg-muted pg-small">Load ID</span></td></tr>
@@ -350,7 +429,7 @@
         <label class="pg-field">Pickup from<input type="time" id="pg-d-pfrom" value="${esc(pickupFromTms && pickupFromTms !== "00:00" ? pickupFromTms : d.pickupFrom || "07:00")}"></label>
         <label class="pg-field">Pickup to<input type="time" id="pg-d-pto" value="${esc(d.pickupTo || "13:00")}"></label>
         <label class="pg-field">Delivery date<input type="date" id="pg-d-ddate" value="${esc(deliveryDate)}"></label>
-        <label class="pg-field">Delivery time<input type="time" id="pg-d-dtime" value="${esc(d.deliveryTime || "12:00")}"></label>
+        <label class="pg-field">Delivery time<input type="time" id="pg-d-dtime" value="${esc(deliveryTimeDefault)}"></label>
         <label class="pg-field">Shipper price (${esc((site && site.currency) || "EUR")})<input type="number" id="pg-d-price" min="0" step="1" value="${esc(lastPrice || "")}" placeholder="LINE_HAUL"></label>
       </div>
       <div class="pg-panel-actions">
@@ -393,9 +472,14 @@
       return `
         <h4>Resolved</h4>
         <div><b>Pickup</b> ${esc(R.pickup.locationName)} <span class="pg-muted">(${esc(R.pickup.nodeCode)}, address ${esc(R.pickup.addressUsed.addressId)} · ${esc(R.pickup.addressUsed.used)})</span><br>${addr(R.pickup)}<br>${esc(fmtTime(R.pickup.start, R.pickup.tz))} → ${esc(fmtTime(R.pickup.end, R.pickup.tz))} <span class="pg-muted">${esc(R.pickup.tz)}</span></div>
-        <div style="margin-top:6px"><b>Delivery</b> ${esc(R.delivery.locationName)}${isIdc(R.destNode) ? ' <span class="pg-flag pg-idc">IDC</span>' : ""} <span class="pg-muted">(${esc(R.delivery.locationType)}, address ${esc(R.delivery.addressUsed.addressId)} · ${esc(R.delivery.addressUsed.used)}${R.destResolvedBy === "lane" ? " · matched from the address via lanes" : R.destResolvedBy === "manual" ? " · you picked this" : ""})</span><br>${addr(R.delivery)}<br>${esc(fmtTime(R.delivery.at, R.delivery.tz))} <span class="pg-muted">${esc(R.delivery.tz)}</span></div>
+        <div style="margin-top:6px"><b>Delivery</b> ${esc(R.delivery.locationName)}${isIdc(R.destNode) ? ' <span class="pg-flag pg-idc">IDC</span>' : ""} <span class="pg-muted">(${esc(R.delivery.locationType)}, address ${esc(R.delivery.addressUsed.addressId)} · ${esc(R.delivery.addressUsed.used)}${R.destResolvedBy === "po" ? " · from the PO" : R.destResolvedBy === "lane" ? " · matched from the address via lanes" : R.destResolvedBy === "manual" ? " · you picked this" : ""})</span>${R.destResolvedBy === "po" ? ' <span class="pg-pp">PP</span>' : ""}<br>${addr(R.delivery)}<br>${esc(fmtTime(R.delivery.at, R.delivery.tz))} <span class="pg-muted">${esc(R.delivery.tz)}</span></div>
         <div style="margin-top:6px">${esc(R.pallets)} ${esc(d.palletType || "")} · ${esc(R.weight)} kg · ${esc(R.distance.value)} ${esc(R.distance.unit)} · ${R.price ? esc(R.price.value + " " + R.price.currency) + (R.price.fromLane ? " <span class=\"pg-muted\">(lane rate)</span>" : "") : '<span class="pg-flag pg-warn">no price</span>'} · ${esc(d.equipmentType || "")}</div>
         ${R.lane ? `<div class="pg-muted pg-small">Contracted lane ${esc(R.lane.key)} — ${esc(R.lane.price)} ${esc(R.lane.currency)}${R.lane.validTo ? ", valid to " + esc(R.lane.validTo) : ""}</div>` : `<div class="pg-flag pg-warn">Not on a contracted lane</div>`}
+        ${
+          R.po
+            ? `<div class="pg-small" style="margin-top:6px"><b>Procurement Portal (PP)</b> PO ${esc(R.po.poId)} · FC <b>${esc(R.po.fcId || "?")}</b> <span class="pg-pp">PP</span> · window ${esc((R.po.windowStart || "").slice(0, 10))} → ${esc((R.po.windowEnd || "").slice(0, 10))} <span class="pg-pp">PP</span> <span class="pg-muted">(Latest Vendor Delivery ${esc((R.po.windowEnd || "").slice(0, 10))})</span></div>`
+            : `<div class="pg-small pg-muted" style="margin-top:6px">No Procurement Portal PO matched — destination/window from TMS.</div>`
+        }
         <h4>Checks</h4>${w}
         <p class="pg-muted pg-small">Creating makes a <b>DRAFT</b> in SMC under shipper ${esc(settings.shipperIds[0] || "?")}. Review and submit it in SMC.</p>`;
     };
@@ -517,10 +601,13 @@
       html += ` <span class="pg-muted pg-small">(${smc.smcOrders} SMC order(s) in window${smc.truncated ? ", TRUNCATED — widen the pad" : ""})</span>`;
     }
     if (accessMissing.some((o) => /smc-eu-dub/.test(o))) {
-      html += ` <span class="pg-flag pg-warn">SMC site access not granted — click the P&amp;G TMS Viewer toolbar icon and accept the prompt before Check SMC.</span>`;
+      html += ` <span class="pg-flag pg-warn">SMC site access not granted — click the P&amp;G TMS Viewer toolbar icon and accept the prompt before Check.</span>`;
     }
     if (configError) {
       html += ` <span class="pg-flag pg-error">Background unreachable: ${esc(configError)}</span>`;
+    }
+    if (filterTerms.length) {
+      html += ` <span class="pg-muted">· showing ${visibleRows().length} of ${n} (filter: ${esc(filterTerms.join(" "))})</span>`;
     }
     return html;
   }
@@ -568,6 +655,7 @@
       const res = await call("smcCheck", { loads }, 120_000);
       const matches = res.matches || {};
       smc = {
+        po: {}, // load.loadId → PO record (Procurement Portal), filled below
         matches,
         unmatched: res.unmatched || [],
         smcOrders: res.smcOrders || 0,
@@ -601,6 +689,35 @@
       }
       renderTable();
       setStatus(summary(), smc.truncated ? "error" : "ok");
+
+      // Procurement Portal cross-check — NEW rows only (be very sure of the
+      // destination FC + PO window before creating). Best-effort: a portal
+      // failure just leaves those rows on their TMS destination/window.
+      const newLoads = lastRows.filter(isNew);
+      const poIds = [...new Set(newLoads.map((r) => r.po).filter(Boolean))];
+      if (poIds.length) {
+        setStatus(summary() + ` <span class="pg-muted pg-small">· checking ${poIds.length} PO(s) in the portal…</span>`, "ok");
+        try {
+          const pos = await call("poLookup", { poIds }, 120_000);
+          for (const r of newLoads) {
+            const p = pos[r.po] || pos[String(r.po).toUpperCase()];
+            if (p) smc.po[r.loadId] = p;
+          }
+          // Flatten for CSV/filter (windowPP/destPP read smc.po).
+          for (const r of lastRows) {
+            r.poWindowPP = windowPP(r);
+            r.destinationPP = destPP(r);
+          }
+          renderTable();
+          setStatus(summary(), "ok");
+        } catch (e) {
+          // Portal down/expired — keep the SMC result, just note it.
+          const note = e.expired
+            ? `Portal not checked (session expired) — Destination/PO Window are from TMS. <a class="pg-link" href="${esc(cfg.portalTabUrl || "https://procurementportal-eu.corp.amazon.com/")}" target="_blank" rel="noopener">Open the portal</a>`
+            : `Portal not checked (${esc(e.message)}) — Destination/PO Window are from TMS.`;
+          setStatus(summary() + ` <span class="pg-flag pg-warn">${note}</span>`, "");
+        }
+      }
     } catch (e) {
       let html = esc(e.message);
       if (e.expired) {
@@ -976,8 +1093,9 @@
       <header class="pg-topbar">
         <div class="pg-brand">P&amp;G TMS Viewer <span class="pg-version">v${esc(version)}</span></div>
         <div class="pg-actions">
+          <input type="search" id="pg-filter" class="pg-filter" placeholder="Filter / search IDs (space-separated = any)" title="Filter the loaded rows across all columns. Paste several IDs separated by spaces (or commas) to see every row matching ANY of them." />
           <button type="button" id="pg-btn-refresh" title="Re-read the list">Refresh</button>
-          <button type="button" id="pg-btn-smc" class="pg-primary" disabled title="Which Load IDs already have an SMC order?">Check SMC</button>
+          <button type="button" id="pg-btn-smc" class="pg-primary" disabled title="Check SMC + Procurement Portal for every row">Check</button>
           <label class="pg-check" title="Show only loads without an SMC order"><input type="checkbox" id="pg-new-only" disabled> New only</label>
           <button type="button" id="pg-btn-new" disabled title="Load ID + PO of the new loads, tab-separated">Copy new loads</button>
           <button type="button" id="pg-btn-copy" disabled>Copy table</button>
@@ -1003,6 +1121,11 @@
 
     $("#pg-btn-refresh", root).addEventListener("click", doExtract);
     $("#pg-btn-smc", root).addEventListener("click", doSmcCheck);
+    $("#pg-filter", root).addEventListener("input", (e) => {
+      filterTerms = e.target.value.trim().toLowerCase().split(/[\s,;]+/).filter(Boolean);
+      renderTable();
+      if (lastRows.length) setStatus(summary(), "");
+    });
     $("#pg-btn-new", root).addEventListener("click", doCopyNew);
     $("#pg-btn-copy", root).addEventListener("click", doCopy);
     $("#pg-btn-csv", root).addEventListener("click", doCsv);
@@ -1049,5 +1172,13 @@
   });
 
   boot();
-  window.__pgOverlay = { open, close, toggle, extract: doExtract, checkSmc: doSmcCheck };
+  window.__pgOverlay = {
+    open, close, toggle, extract: doExtract, check: doSmcCheck,
+    setFilter: (s) => {
+      filterTerms = String(s || "").trim().toLowerCase().split(/[\s,;]+/).filter(Boolean);
+      renderTable();
+      if (lastRows.length) setStatus(summary(), "");
+      return visibleRows().length;
+    },
+  };
 })();

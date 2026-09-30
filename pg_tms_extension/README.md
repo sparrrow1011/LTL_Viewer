@@ -170,6 +170,34 @@ What the panel resolves:
 The one-off **Record SMC requests** switch in Settings (webRequest) is how the
 create call was captured; it stays available for the next unknown endpoint.
 
+## Procurement Portal cross-check
+
+For extra certainty, the draft builder looks the PO up in the Procurement
+Portal (`POST /bp-api/search/po` with the PO id = BOL, via `content/portal.js`
+on a portal tab, Midway cookie session). The PO response is authoritative for:
+
+- **Destination FC** (`fcId`, e.g. `XCD2`) — this overrides the node inferred
+  from the TMS street address; a mismatch is flagged.
+- **PO delivery window** (`handOffStart` → `handOffEnd`; `handOffEnd` is the
+  portal's *Latest Vendor Delivery Date*) — the chosen delivery date is checked
+  against it and flagged if outside.
+
+Best-effort: if the portal is signed out or has no matching PO, the draft falls
+back to the TMS destination/window and says so; a user-picked node always wins.
+Anything sourced from the portal is tagged **PP** in the panel.
+
+The **Check** button (one click) checks SMC for every row and then the
+Procurement Portal for the NEW rows. The results grid gets two portal columns,
+**PO Window (PP)** and **Destination (PP)**, each tagged **PP** and falling back
+to the TMS delivery window / destination when the portal has no PO. The draft's
+delivery date and time default from the PO window (window end = Latest Vendor
+Delivery Date).
+
+The toolbar **Filter** box narrows the loaded rows across all columns; space-
+separate terms and every term must match (e.g. `amiens 383`). The status line
+shows "showing X of Y". It filters the extension's own data — it does not call
+the portal.
+
 ## Remote control & auto-update
 
 Like the other four extensions, this one is signed and published by

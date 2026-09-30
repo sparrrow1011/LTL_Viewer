@@ -18,6 +18,7 @@ import * as draft from "./draft.js";
 import * as lanesStore from "./lanesStore.js";
 import * as control from "./control.js";
 import * as spClient from "./spClient.js";
+import * as portalClient from "./portalClient.js";
 import * as usage from "./usage.js";
 import { log } from "./debug.js";
 
@@ -60,7 +61,7 @@ browser.alarms.onAlarm.addListener((a) => {
 const CONTROL_EXEMPT = new Set([
   "getConfig", "getSettings", "saveSettings", "siteAccess", "setDebug",
   "controlStatus", "tmsToggle", "tmsPing", "tmsExtract",
-  "tms:bridge-ready", "smc:bridge-ready", "sp:bridge-ready",
+  "tms:bridge-ready", "smc:bridge-ready", "sp:bridge-ready", "portal:bridge-ready",
 ]);
 
 // ── settings (browser.storage.local) ──────────────────────────────────────────
@@ -118,6 +119,7 @@ const HANDLERS = {
     smcOrderUrl: Config.SMC_ORDER_URL("__ID__"),
     smcOrderDefaults: Config.SMC_ORDER_DEFAULTS,
     idcNodes: Config.IDC_NODES,
+    portalTabUrl: Config.PORTAL_TAB_URL,
   }),
 
   getSettings: () => getSettings(),
@@ -131,6 +133,10 @@ const HANDLERS = {
 
   // Stop name / node code → SMC locations with address IDs (for order prep).
   smcLocations: (msg) => smcClient.lookupLocations(msg.names || []),
+
+  // Procurement Portal: authoritative PO delivery FC + PO window per PO id.
+  poLookup: (msg) => portalClient.lookupPos(msg.poIds || []),
+  portalPing: () => portalClient.ping(),
 
   // Draft creation: prepare = resolve + build payload (no write); create = POST it.
   smcPrepareDraft: async (msg) => {
@@ -205,9 +211,13 @@ const HANDLERS = {
     log.info("sp", `bridge ready: ${msg.href}`);
     return { ack: true };
   },
+  "portal:bridge-ready": (msg) => {
+    log.info("portal", `bridge ready: ${msg.href}`);
+    return { ack: true };
+  },
 };
 
-const BRIDGE_PREFIX = /^(tms|smc|sp):/;
+const BRIDGE_PREFIX = /^(tms|smc|sp|portal):/;
 
 browser.runtime.onMessage.addListener((msg) => {
   const action = msg && msg.action;

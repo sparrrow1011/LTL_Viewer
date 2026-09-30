@@ -49,6 +49,7 @@ export const Config = {
     "https://*.jdadelivers.com/*",
     "https://smc-eu-dub.dub.proxy.amazon.com/*",
     "https://amazongbr.sharepoint.com/*",
+    "https://procurementportal-eu.corp.amazon.com/*",
   ],
 
   // ── Shipment Leg list table ────────────────────────────────────────────────
@@ -237,6 +238,18 @@ export const Config = {
   SMC_TAB_URL: "https://smc-eu-dub.dub.proxy.amazon.com/orders/list/tab/1",
   SMC_TAB_MATCH: "https://smc-eu-dub.dub.proxy.amazon.com/*",
   SMC_ORDER_URL: (id) => `https://smc-eu-dub.dub.proxy.amazon.com/order/${encodeURIComponent(id)}`,
+
+  // ── Procurement Portal (authoritative PO window + destination FC) ──────────
+  // Cookie-auth (Midway). content/portal.js runs on a portal tab and POSTs the
+  // PO (= BOL = TMS Customer Purchase Order) to /bp-api/search/po. Response
+  // gives fcId (delivery FC) and handOffStart/handOffEnd (the PO delivery
+  // window; handOffEnd = "Latest Vendor Delivery Date").
+  PORTAL_ORIGIN: "https://procurementportal-eu.corp.amazon.com",
+  PORTAL_SEARCH_URL: "https://procurementportal-eu.corp.amazon.com/bp-api/search/po",
+  PORTAL_TAB_URL: "https://procurementportal-eu.corp.amazon.com/",
+  PORTAL_TAB_MATCH: "https://procurementportal-eu.corp.amazon.com/*",
+  PORTAL_PO_URL: (poId) =>
+    `https://procurementportal-eu.corp.amazon.com/bp/po?poId=${encodeURIComponent(poId)}&tabId=summary`,
   // New-order form for a shipper (P&G: /order/create/9206952112).
   SMC_CREATE_URL: (shipperId) =>
     `https://smc-eu-dub.dub.proxy.amazon.com/order/create/${encodeURIComponent(shipperId)}`,

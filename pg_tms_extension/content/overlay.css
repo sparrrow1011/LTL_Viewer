@@ -262,3 +262,24 @@ table.pg-lane-tbl td { padding: 3px 4px; border-bottom: 1px solid #f1f5f9; }
   font-size: 12px;
   flex: 0 0 auto;
 }
+
+/* ── Procurement Portal: (PP) tag, bulk PO search, PO table ───────────────── */
+.pg-pp {
+  display: inline-block;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+#pg-overlay-root .pg-filter {
+  font: inherit;
+  padding: 5px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  min-width: 200px;
+  color: #0f172a;
+  background: #fff;
+}

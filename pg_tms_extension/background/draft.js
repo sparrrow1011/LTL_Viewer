@@ -16,7 +16,10 @@
 import { Config } from "../config.js";
 import * as smcClient from "./smcClient.js";
 import { findLane, laneDestinations } from "./lanesStore.js";
+import * as portalClient from "./portalClient.js";
 import { log } from "./debug.js";
+
+const iso = (ms) => (ms == null ? "" : new Date(Number(ms)).toISOString());
 
 // ── time zone maths (no libraries): site-local wall time → UTC ISO ──────────
 function tzOffsetMs(utcMs, tz) {
@@ -103,12 +106,34 @@ export async function prepare(input) {
   if (!input.loadId) throw new Error("Load ID missing.");
   if (!input.po) throw new Error("PO missing.");
 
-  // Destination node: from the TMS column when it's a code, otherwise resolve
-  // the street address against this origin's contracted-lane destinations by
-  // postcode/city (SMC has each node's address). The panel can also pass an
-  // explicit destNode the user picked.
+  // Procurement Portal is the authoritative source for the delivery FC and the
+  // PO delivery window (BOL == PO == poId). Best-effort: if the portal is
+  // unreachable we fall back to the TMS-derived destination and window, but a
+  // resolved PO WINS over the address/lane guess. A user-picked node still wins
+  // over everything.
+  let po = null;
+  if (!input.destNodePicked) {
+    try {
+      const pos = await portalClient.lookupPos([input.po]);
+      po = pos[String(input.po).trim()] || pos[input.po] || null;
+      if (po && !po.found) po = null;
+    } catch (e) {
+      if (e.expired) warnings.push("Procurement Portal session expired — used the TMS destination/window instead. Sign in to verify.");
+      else warnings.push(`Procurement Portal lookup failed (${e.message}) — used the TMS destination/window.`);
+    }
+  }
+
+  // Destination node: PO fcId (authoritative) → TMS column code → resolve the
+  // street address against this origin's lanes → user pick.
   let destNode = input.destNode;
   let destResolvedBy = destNode ? (input.destNodePicked ? "manual" : "tms") : "";
+  if (po && po.fcId && !input.destNodePicked) {
+    if (destNode && up(destNode) !== up(po.fcId)) {
+      warnings.push(`TMS destination ${destNode} ≠ PO delivery FC ${po.fcId} — using the PO's ${po.fcId}.`);
+    }
+    destNode = po.fcId;
+    destResolvedBy = "po";
+  }
   if (!destNode) {
     const r = await resolveDestByLane(pickupQuery, input.destPostcode, input.destCity);
     if (r.node) {
@@ -150,6 +175,19 @@ export async function prepare(input) {
   const deliveryAt = localToUtcIso(input.deliveryDate || input.pickupDate, input.deliveryTime || d.deliveryTime, dropTz);
   if (pickupEnd < pickupStart) throw new Error("Pickup window ends before it starts.");
   if (deliveryAt <= pickupStart) warnings.push("Delivery time is not after the pickup start.");
+
+  // Cross-check the delivery against the authoritative PO delivery window
+  // (handOffStart..handOffEnd; end = "Latest Vendor Delivery Date"). Compare by
+  // day so a time-of-day choice doesn't false-trip.
+  if (po && po.windowStartMs != null && po.windowEndMs != null) {
+    const day = (iso) => String(iso).slice(0, 10);
+    const startDay = day(new Date(po.windowStartMs).toISOString());
+    const endDay = day(new Date(po.windowEndMs).toISOString());
+    const dDay = day(deliveryAt);
+    if (dDay < startDay || dDay > endDay) {
+      warnings.push(`Delivery ${dDay} is OUTSIDE the PO window ${startDay} → ${endDay} (Latest Vendor Delivery ${endDay}). Book inside the window, then push per RDD.`);
+    }
+  }
 
   // Numbers
   const weight = Math.round((Number(input.weight) || 0) * 10) / 10;
@@ -317,6 +355,7 @@ export async function prepare(input) {
     lane: lane ? { key: `${pickLoc.nodeCode || pickupQuery}->${dropLoc.nodeCode || destNode}`, price: lane.price, currency: lane.currency, validTo: lane.validTo } : null,
     destNode,
     destResolvedBy,
+    po: po ? { poId: po.poId, fcId: po.fcId, windowStart: po.windowStart, windowEnd: po.windowEnd, vendor: po.vendor, condition: po.condition } : null,
     siteKey,
   };
   log.info("draft", `prepared ${input.loadId}: ${pickupStop.stopName} → ${dropStop.stopName}, ${pallets} plt, ${weight} kg, ${totalDistance.value} ${totalDistance.unit}`);
