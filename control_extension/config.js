@@ -23,6 +23,7 @@ export const Config = {
     { slug: "ms-viewer", name: "MS Viewer" },
     { slug: "hc-calculator", name: "HC Calculator" },
     { slug: "all-runs", name: "All Runs" },
+    { slug: "pg-tms-viewer", name: "P&G TMS Viewer" },
   ],
 
   // Where the add-ons report their install roster (usage.js in each of them).

@@ -1,7 +1,7 @@
 # Extension Control (Firefox WebExtension)
 
 The admin console for the team's add-ons (Lobby Sweeper, MS Viewer, HC
-Calculator, All Runs). It does everything the GitHub Pages admin page and
+Calculator, All Runs, P&G TMS Viewer). It does everything the GitHub Pages admin page and
 `.github/scripts/control.ps1` do, from a toolbar button instead of a web page
 or a shell — and it shows the **live** install roster from SharePoint, so the
 "Publish roster" step in Lobby Sweeper is no longer needed.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Extension Control",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Admin console for the team's Firefox add-ons: enable/disable them globally, per user or per install, set notices and minimum versions, and see who has what installed. Edits control.json on the repo's updates branch.",
   "browser_specific_settings": {
     "gecko": {
