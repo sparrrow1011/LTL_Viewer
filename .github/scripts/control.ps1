@@ -14,10 +14,10 @@
   .\control.ps1 lobby-sweeper notice ""
   .\control.ps1 lobby-sweeper min-version 0.2.8
 
-  Slugs: lobby-sweeper | ms-viewer | hc-calculator | all-runs. Installs re-read the file within 15 minutes.
+  Slugs: lobby-sweeper | ms-viewer | hc-calculator | all-runs | pg-tms-viewer. Installs re-read the file within 15 minutes.
 #>
 param(
-  [Parameter(Mandatory)][ValidateSet("lobby-sweeper", "ms-viewer", "hc-calculator", "all-runs")][string]$Slug,
+  [Parameter(Mandatory)][ValidateSet("lobby-sweeper", "ms-viewer", "hc-calculator", "all-runs", "pg-tms-viewer")][string]$Slug,
   [Parameter(Mandatory)][ValidateSet("show", "disable-user", "enable-user", "disable-install", "enable-install", "disable-all", "enable-all", "notice", "min-version")][string]$Action,
   [string]$Target = "",
   [string]$Message = ""

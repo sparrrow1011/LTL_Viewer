@@ -151,6 +151,7 @@ const EXT_NAMES = {
   "ms-viewer": "MS Viewer",
   "hc-calculator": "HC Calculator",
   "all-runs": "All Runs",
+  "pg-tms-viewer": "P&G TMS Viewer",
 };
 const ROSTER_COLUMNS = [
   {

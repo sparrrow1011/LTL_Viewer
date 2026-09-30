@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "P&G TMS Viewer",
+  "version": "0.4.1",
+  "description": "Overlay on the JDA/BlueYonder TMS Shipment Leg list showing P&G freight order data (PO, CRDD, status, Load ID, pallets, site, delivery window, ISA) with SOP checks for CST order handling.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "pg-tms-viewer@internal",
+      "strict_min_version": "140.0",
+      "update_url": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/pg-tms-viewer/updates.json",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "webNavigation",
+    "webRequest",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://*.jdadelivers.com/*",
+    "https://smc-eu-dub.dub.proxy.amazon.com/*"
+  ],
+  "background": {
+    "scripts": ["background/background.js"],
+    "type": "module"
+  },
+  "action": {
+    "default_title": "P&G TMS Viewer",
+    "default_icon": {
+      "48": "icons/icon-48.png",
+      "96": "icons/icon-96.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.jdadelivers.com/*"],
+      "js": ["content/tms.js", "content/overlay.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://smc-eu-dub.dub.proxy.amazon.com/*"],
+      "js": ["content/smc.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
+  }
+}
