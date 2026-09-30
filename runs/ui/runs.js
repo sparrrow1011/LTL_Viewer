@@ -1508,6 +1508,10 @@
         el("header", { class: "runs-header" }, [
           el("h1", { text: `All Runs v${browser.runtime.getManifest().version}` }),
           el("span", { class: "runs-badge", text: "SMC + FMC" }),
+          el("span", { class: "runs-head-note runs-author" }, [
+            document.createTextNode("author: mayowa babalola · alias: "),
+            el("a", { href: "https://phonetool.amazon.com/users/mayowas", target: "_blank", rel: "noopener", text: "mayowas", title: "Open in Phone Tool" }),
+          ]),
           el("span", { class: "runs-head-note", id: "runs-shippers" }),
           el("span", { class: "runs-head-note", id: "runs-status" }),
           el("span", { class: "runs-spacer" }),

@@ -52,6 +52,8 @@ html, body {
 }
 .runs-head-note { font-size: 11px; color: rgba(255, 255, 255, 0.75); }
 .runs-head-note code { color: #fff; font-size: 11px; }
+.runs-author a { color: #fff; text-decoration: underline dotted; }
+.runs-author a:hover { text-decoration: underline; }
 .runs-head-btn {
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.35);
