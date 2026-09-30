@@ -91,13 +91,21 @@ pg_tms_extension/
 │   ├── background.js       message router, settings (storage.local), toolbar → overlay
 │   ├── tmsClient.js        finds/opens the TMS tab, messages all frames
 │   ├── smcClient.js        SMC bridge client + Load ID ↔ shipper-reference matching
+│   ├── draft.js            builds the createV3 payload from a TMS row + lanes
+│   ├── lanesStore.js       built-in lanes.js merged with user-added lanes (Settings)
+│   ├── spClient.js         SharePoint bridge client (usage roster only)
+│   ├── usage.js            Extension_Installs roster reporter (shared verbatim)
+│   ├── control.js          remote kill switch / minVersion (shared verbatim)
+│   ├── recorder.js         one-off SMC request capture (Settings)
 │   ├── bridgeClient.js     generic find/open-tab + inject/reload bridge helper
 │   └── debug.js            __pgDebug logger
 ├── content/
 │   ├── tms.js              scrapes the table; answers tms:* messages (all frames)
 │   ├── overlay.js          toggle button + panel (SMC check, site panel, settings)
 │   ├── overlay.css         `pg-` prefixed styles
-│   └── smc.js              SMC bridge: same-origin /shipper/order/search
+│   ├── smc.js              SMC bridge: same-origin /shipper/order/search + create
+│   └── sp-bridge.js        SharePoint bridge (usage roster; shared verbatim)
+├── lanes.js               built-in P&G contracted lanes
 └── icons/
 ```
 
@@ -179,9 +187,13 @@ the list; a `notice` shows as a banner while enabled. Admin edits:
 `.github/scripts/control.ps1 pg-tms-viewer disable-user <alias> "<message>"`
 (or the admin page). The seed lives at `.github/control/pg-tms-viewer.json`.
 
-Not yet wired: usage reporting to the SharePoint `Extension_Installs` roster
-(needs a SharePoint client this extension doesn't have) — control still works
-by alias / install id.
+Usage reporting: `background/usage.js` (shared with the other extensions)
+upserts one row per install into the SharePoint `Extension_Installs` list, so
+the install shows up in the admin roster with its alias, version, and run count
+(a run = creating an SMC draft). SharePoint REST needs the user's session, so
+it goes through `content/sp-bridge.js` on a SharePoint tab (opened in the
+background if none is open), same as SMC. Reports on startup, hourly, and after
+a draft; failures are swallowed so the roster never blocks the real work.
 
 ## Roadmap
 

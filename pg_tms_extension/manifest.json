@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "P&G TMS Viewer",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Overlay on the JDA/BlueYonder TMS Shipment Leg list showing P&G freight order data (PO, CRDD, status, Load ID, pallets, site, delivery window, ISA) with SOP checks for CST order handling.",
   "browser_specific_settings": {
     "gecko": {
@@ -23,7 +23,8 @@
   ],
   "host_permissions": [
     "https://*.jdadelivers.com/*",
-    "https://smc-eu-dub.dub.proxy.amazon.com/*"
+    "https://smc-eu-dub.dub.proxy.amazon.com/*",
+    "https://amazongbr.sharepoint.com/*"
   ],
   "background": {
     "scripts": ["background/background.js"],
@@ -47,6 +48,11 @@
     {
       "matches": ["https://smc-eu-dub.dub.proxy.amazon.com/*"],
       "js": ["content/smc.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://amazongbr.sharepoint.com/sites/AmazonFreightOperations/*"],
+      "js": ["content/sp-bridge.js"],
       "run_at": "document_idle"
     }
   ],

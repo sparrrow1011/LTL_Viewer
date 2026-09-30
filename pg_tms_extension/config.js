@@ -25,6 +25,15 @@ export const Config = {
   CONTROL_URL: "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/pg-tms-viewer/control.json",
   CONTROL_REFRESH_MINUTES: 15,
 
+  // ── SharePoint (usage roster only) ─────────────────────────────────────────
+  // Cookie-auth REST works only from a page ON the SharePoint origin, so the
+  // usage reporter routes _api calls through content/sp-bridge.js on a tab of
+  // this site. Same tenant/site as the other extensions' Extension_Installs.
+  SP_ORIGIN: "https://amazongbr.sharepoint.com",
+  SP_SITE_PATH: "/sites/AmazonFreightOperations",
+  SP_TAB_URL: "https://amazongbr.sharepoint.com/sites/AmazonFreightOperations",
+  SP_TAB_MATCH: "https://amazongbr.sharepoint.com/sites/AmazonFreightOperations/*",
+
   // ── TMS (JDA / BlueYonder "Transportation Manager") ────────────────────────
   // The P&G prod SSO host. host_permissions uses the wildcard so other JDA
   // hostnames (test/stage) still work.
@@ -36,7 +45,11 @@ export const Config = {
   // Every origin the add-on needs site access for. Installed MV3 add-ons (and
   // temporary ones reloaded after a manifest change) start without it; the
   // toolbar click requests whatever is missing.
-  HOST_ORIGINS: ["https://*.jdadelivers.com/*", "https://smc-eu-dub.dub.proxy.amazon.com/*"],
+  HOST_ORIGINS: [
+    "https://*.jdadelivers.com/*",
+    "https://smc-eu-dub.dub.proxy.amazon.com/*",
+    "https://amazongbr.sharepoint.com/*",
+  ],
 
   // ── Shipment Leg list table ────────────────────────────────────────────────
   // The results table id and the 0-based column indexes on each data row

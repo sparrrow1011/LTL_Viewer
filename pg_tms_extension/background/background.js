@@ -17,7 +17,23 @@ import * as recorder from "./recorder.js";
 import * as draft from "./draft.js";
 import * as lanesStore from "./lanesStore.js";
 import * as control from "./control.js";
+import * as spClient from "./spClient.js";
+import * as usage from "./usage.js";
 import { log } from "./debug.js";
+
+// ── usage roster (Extension_Installs list on SharePoint) ────────────────────
+// One row per install so the admin page can list who has the add-on. Reached
+// through the SharePoint bridge (spClient). Failures are swallowed inside
+// usage.js — the roster must never block the real work.
+usage.init({
+  slug: "pg-tms-viewer",
+  version: browser.runtime.getManifest().version,
+  spRequest: (r) => spClient.spRequest(r),
+  getAlias: () => smcClient.getRequester(),
+  getInstallId: () => control.getInstallId(),
+  log,
+});
+setTimeout(() => usage.report("startup"), 15_000);
 
 // ── remote control (control.json on the updates branch) ────────────────────
 // Global / per-alias / per-install kill switch + minVersion. Identity = SMC
@@ -33,7 +49,10 @@ control.init({
 const CONTROL_ALARM = "pg-tms-viewer-control";
 browser.alarms.create(CONTROL_ALARM, { periodInMinutes: Config.CONTROL_REFRESH_MINUTES });
 browser.alarms.onAlarm.addListener((a) => {
-  if (a.name === CONTROL_ALARM) control.refresh();
+  if (a.name === CONTROL_ALARM) {
+    control.refresh();
+    usage.report("tick"); // throttled to once an hour inside usage.js
+  }
 });
 
 // Actions that stay available while remotely disabled, so the overlay can
@@ -41,7 +60,7 @@ browser.alarms.onAlarm.addListener((a) => {
 const CONTROL_EXEMPT = new Set([
   "getConfig", "getSettings", "saveSettings", "siteAccess", "setDebug",
   "controlStatus", "tmsToggle", "tmsPing", "tmsExtract",
-  "tms:bridge-ready", "smc:bridge-ready",
+  "tms:bridge-ready", "smc:bridge-ready", "sp:bridge-ready",
 ]);
 
 // ── settings (browser.storage.local) ──────────────────────────────────────────
@@ -126,6 +145,7 @@ const HANDLERS = {
       const s = await getSettings();
       await saveSettings({ prices: { ...(s.prices || {}), [msg.siteKey]: Number(msg.price) } });
     }
+    usage.report("draft-created", { ran: true }).catch(() => {}); // roster: bump Runs/LastRun
     return r;
   },
 
@@ -181,9 +201,13 @@ const HANDLERS = {
     log.info("smc", `bridge ready: ${msg.href}`);
     return { ack: true };
   },
+  "sp:bridge-ready": (msg) => {
+    log.info("sp", `bridge ready: ${msg.href}`);
+    return { ack: true };
+  },
 };
 
-const BRIDGE_PREFIX = /^(tms|smc):/;
+const BRIDGE_PREFIX = /^(tms|smc|sp):/;
 
 browser.runtime.onMessage.addListener((msg) => {
   const action = msg && msg.action;
