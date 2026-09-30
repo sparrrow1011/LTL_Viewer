@@ -1,0 +1,264 @@
+/* P&G TMS Viewer — overlay styles. Everything is prefixed `pg-` so nothing
+   leaks into (or is overridden by) the TMS page's own CSS. */
+
+#pg-overlay-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483646;
+  padding: 9px 14px;
+  background: #232f3e;
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  font: 600 13px/1.2 Arial, Helvetica, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+#pg-overlay-toggle:hover { background: #111a26; }
+
+#pg-overlay-root {
+  position: fixed;
+  inset: 4% 3% 4% 3%;
+  z-index: 2147483647;
+  display: none; /* flex when open */
+  flex-direction: column;
+  background: #f1f5f9;
+  color: #0f172a;
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  font: 13px/1.45 Arial, Helvetica, sans-serif;
+  text-align: left;
+}
+#pg-overlay-root * { box-sizing: border-box; }
+
+.pg-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #232f3e;
+  color: #fff;
+  flex: 0 0 auto;
+}
+.pg-brand { font-weight: 700; letter-spacing: 0.3px; }
+.pg-version { font-weight: 400; opacity: 0.7; font-size: 11px; margin-left: 6px; }
+.pg-actions { display: flex; gap: 8px; }
+
+#pg-overlay-root button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+}
+#pg-overlay-root button:hover:not(:disabled) { background: #f8fafc; }
+#pg-overlay-root button:disabled { opacity: 0.5; cursor: not-allowed; }
+#pg-overlay-root button.pg-primary {
+  background: #ff9900;
+  border-color: #ff9900;
+  color: #1a1a1a;
+  font-weight: 700;
+}
+#pg-overlay-root button.pg-primary:hover:not(:disabled) { filter: brightness(0.96); }
+
+.pg-status {
+  padding: 10px 16px;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  flex: 0 0 auto;
+}
+.pg-status.pg-error { color: #dc2626; background: #fef2f2; }
+.pg-status.pg-ok { color: #16a34a; }
+
+.pg-results { padding: 16px; overflow: auto; flex: 1 1 auto; }
+
+table.pg-grid {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+}
+table.pg-grid th, table.pg-grid td {
+  padding: 7px 9px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+table.pg-grid th {
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  font-weight: 700;
+  color: #334155;
+}
+table.pg-grid tr:last-child td { border-bottom: 0; }
+table.pg-grid tbody tr:hover { background: #f8fafc; }
+
+.pg-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pg-pill.pg-accepted { background: #dcfce7; color: #166534; }
+.pg-pill.pg-open { background: #fef9c3; color: #854d0e; }
+
+.pg-flags { display: flex; flex-direction: column; gap: 3px; white-space: normal; max-width: 260px; }
+.pg-flag { font-size: 11px; }
+.pg-flag.pg-error { color: #dc2626; }
+.pg-flag.pg-warn { color: #b45309; }
+.pg-flag.pg-ok { color: #16a34a; }
+
+/* ── body: results + slide-in side panel ─────────────────────────────────── */
+.pg-body { display: flex; flex: 1 1 auto; min-height: 0; position: relative; }
+.pg-results { flex: 1 1 auto; }
+
+.pg-panel {
+  flex: 0 0 0;
+  width: 0;
+  overflow: hidden;
+  border-left: 1px solid #e2e8f0;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.15s ease, flex-basis 0.15s ease;
+}
+.pg-panel.pg-panel-open { flex-basis: 360px; width: 360px; }
+.pg-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pg-panel-head button { padding: 2px 8px; }
+.pg-panel-body { padding: 12px 14px; overflow: auto; font-size: 12.5px; }
+.pg-panel-body h4 { margin: 10px 0 4px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; }
+.pg-panel-body h4:first-child { margin-top: 0; }
+.pg-panel-body p, .pg-panel-body ul { margin: 0 0 6px; }
+.pg-panel-body ul { padding-left: 18px; }
+.pg-panel-body li { margin-bottom: 4px; }
+.pg-panel-body code { font-size: 11px; background: #f1f5f9; padding: 0 4px; border-radius: 3px; }
+.pg-panel-actions { display: flex; gap: 8px; margin: 10px 0; }
+
+.pg-field { display: block; margin-bottom: 12px; font-weight: 600; color: #334155; }
+.pg-field textarea, .pg-field input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 400;
+  color: #0f172a;
+  background: #fff;
+}
+.pg-field .pg-small { display: block; font-weight: 400; margin-top: 3px; }
+
+/* ── toolbar extras ───────────────────────────────────────────────────────── */
+.pg-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.pg-check input { margin: 0; }
+
+/* ── links, pills, text helpers ───────────────────────────────────────────── */
+#pg-overlay-root .pg-link,
+#pg-overlay-root button.pg-link {
+  color: #1d4ed8;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+#pg-overlay-root button.pg-link.pg-site-unknown { color: #64748b; text-decoration: underline dotted; }
+.pg-pill.pg-new { background: #ffedd5; color: #9a3412; }
+tr.pg-row-new td { background: #fff7ed; }
+tr.pg-row-new:hover td { background: #ffedd5; }
+.pg-muted { color: #64748b; }
+.pg-small { font-size: 11px; }
+.pg-new-txt { color: #c2410c; }
+.pg-ok-txt { color: #16a34a; }
+.pg-err-txt { color: #dc2626; }
+.pg-empty { padding: 24px; text-align: center; color: #64748b; }
+
+/* ── SMC alignment ────────────────────────────────────────────────────────── */
+.pg-flag.pg-info { color: #64748b; }
+.pg-flag.pg-idc {
+  display: inline-block;
+  background: #ede9fe;
+  color: #6d28d9;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-weight: 700;
+  font-size: 10.5px;
+}
+.pg-smc-details { white-space: normal; max-width: 320px; font-size: 11.5px; color: #334155; line-height: 1.5; }
+.pg-smc-details b { color: #0f172a; }
+
+/* ── Prepare SMC order panel ──────────────────────────────────────────────── */
+table.pg-kv { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.pg-kv th, table.pg-kv td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: top; text-align: left; }
+table.pg-kv th { width: 38%; color: #64748b; font-weight: 600; }
+#pg-overlay-root a.pg-btn {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  text-decoration: none;
+}
+#pg-overlay-root a.pg-btn.pg-primary { background: #ff9900; border-color: #ff9900; color: #1a1a1a; font-weight: 700; }
+.pg-panel.pg-panel-open { flex-basis: 420px; width: 420px; }
+
+/* ── SMC draft panel ──────────────────────────────────────────────────────── */
+.pg-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.pg-grid2 .pg-field { margin-bottom: 8px; font-size: 11.5px; }
+.pg-grid2 .pg-field input { padding: 4px 6px; }
+.pg-warnlist { margin: 0; padding-left: 16px; }
+.pg-warnlist li { margin-bottom: 3px; }
+.pg-pre { font-size: 10.5px; white-space: pre-wrap; background: #f8fafc; padding: 6px; border-radius: 4px; max-height: 200px; overflow: auto; }
+
+/* ── collapsible Settings sections + lane editor ──────────────────────────── */
+.pg-details { border-top: 1px solid #e2e8f0; margin-top: 12px; padding-top: 8px; }
+.pg-details > summary { cursor: pointer; font-weight: 700; color: #334155; font-size: 12px; list-style: revert; }
+.pg-details > summary:hover { color: #0f172a; }
+.pg-details[open] > summary { margin-bottom: 6px; }
+table.pg-lane-tbl { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+table.pg-lane-tbl td { padding: 3px 4px; border-bottom: 1px solid #f1f5f9; }
+
+/* ── remote-control notice bar ────────────────────────────────────────────── */
+.pg-notice {
+  padding: 7px 16px;
+  background: #fef9c3;
+  color: #854d0e;
+  border-bottom: 1px solid #fde68a;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
