@@ -65,7 +65,9 @@
     const d = new Date(`${iso}T00:00:00`);
     return isoDay(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
   };
-  const today = () => isoDay(new Date());
+  // "Today" is the UTC day: runs are bucketed by the UTC date of their planned
+  // yard check-in, matching the HC Calculator.
+  const today = () => new Date().toISOString().slice(0, 10);
   const str = (v) => (v == null ? "" : String(v));
   function fmtTime(ms) {
     if (!ms) return "";
@@ -75,10 +77,12 @@
       return "";
     }
   }
+  // Planned times are shown in UTC — the same clock the day buckets use (and
+  // the one FMC / the HC Calculator report in).
   function fmtStamp(ms) {
     if (!ms) return "";
     const d = new Date(ms);
-    return `${isoDay(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.toISOString().slice(0, 10)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
   }
   function toast(text, kind = "info") {
     const t = el("div", { class: `runs-toast runs-toast-${kind}`, text, role: "status" });
@@ -303,6 +307,8 @@
     return null;
   }
 
+  const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
   function normalise(rows, shipperMap, cfg) {
     const nodeRe = new RegExp(cfg.amazonNodePattern || "^[A-Z][A-Z0-9]{2,4}$");
     const elex = String(cfg.elexGroup || "").trim().toLowerCase();
@@ -315,10 +321,15 @@
       const group = !sot ? "FTL" : str(sot.shipper_group).trim().toLowerCase() === elex ? "ELEX" : "CST";
       const pickupMs = toMs(r.orig_planned_epoch, r.orig_planned_yard_checkin_time);
       const deliveryMs = toMs(r.dest_planned_epoch, r.dest_planned_yard_checkin_time);
-      const pickupDate = pickupMs ? isoDay(new Date(pickupMs)) : "";
-      const deliveryDate = deliveryMs ? isoDay(new Date(deliveryMs)) : "";
+      // UTC day, like the HC Calculator (and the source timestamps).
+      const pickupDate = pickupMs ? utcDay(pickupMs) : "";
+      const deliveryDate = deliveryMs ? utcDay(deliveryMs) : "";
       const destNode = str(r.dest_node || r.dest_code).trim();
-      const status = str(r.vehicle_execution_status || r.execution_status || r.status).trim().toUpperCase() || "(none)";
+      // FMC's per-VRID status; but an order SMC has cancelled or left in draft
+      // is out of scope whatever FMC still says (same rule as the HC Calculator).
+      const orderStatus = str(r.order_status || r.status).trim().toUpperCase();
+      const fmcStatus = str(r.vehicle_execution_status || r.execution_status).trim().toUpperCase();
+      const status = orderStatus === "CANCELLED" || orderStatus === "DRAFT" ? "CANCELLED" : fmcStatus || orderStatus || "(none)";
       out.push({
         vrid,
         orderid: str(r.orderid),
@@ -339,7 +350,8 @@
         dest_type: destNode && nodeRe.test(destNode) ? "INBOUND" : "OFF-AMAZON",
         pickup_ms: pickupMs,
         pickup_date: pickupDate,
-        pickup_hour: pickupMs ? `${pad(new Date(pickupMs).getHours())}:00` : "",
+        pickup_hour: pickupMs ? `${pad(new Date(pickupMs).getUTCHours())}:00` : "",
+        order_status: orderStatus,
         delivery_ms: deliveryMs,
         delivery_date: deliveryDate,
         delivery_kind: pickupDate && deliveryDate ? (pickupDate === deliveryDate ? "Same Day Delivery" : "Different Day Delivery") : "(unknown)",
@@ -625,7 +637,7 @@
       renderView();
     };
     return el("div", { class: "runs-field" }, [
-      el("span", { class: "runs-lbl", text: `Pick up date (from → to)${win.start ? ` · data ${win.start} → ${win.end}` : ""}` }),
+      el("span", { class: "runs-lbl", text: `Pick up date, UTC (from → to)${win.start ? ` · data ${win.start} → ${win.end}` : ""}` }),
       el("div", { class: "runs-range" }, [
         input(_f.pickupFrom, (e) => setRange(e.target.value, _f.pickupTo), "Pick up date from"),
         el("span", { text: "→", "aria-hidden": "true" }),
@@ -784,7 +796,7 @@
     pivots.appendChild(
       panel(
         "Origin node",
-        treeTable("orig", ["Shipper / Origin node", "Planned yard check-in (hour)", "VRIDs"], origGroups, { grandTotal: [day.length] }),
+        treeTable("orig", ["Shipper / Origin node", "Planned yard check-in (hour, UTC)", "VRIDs"], origGroups, { grandTotal: [day.length] }),
         {
           half: true,
           note: `Including shipper name · ${origGroups.length} shipper${origGroups.length === 1 ? "" : "s"}, ${origPivot.length} row${origPivot.length === 1 ? "" : "s"} across ${origNodes} origin node${origNodes === 1 ? "" : "s"}.`,
@@ -987,7 +999,7 @@
   const fmtPickup = (ms) => {
     if (!ms) return "";
     const d = new Date(ms);
-    return `${fmtDay(isoDay(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${fmtDay(d.toISOString().slice(0, 10))} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
   };
 
   function renderRlb(view) {

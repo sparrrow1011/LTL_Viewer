@@ -59,17 +59,17 @@ sortable, for the pick-up date or the whole window. Every table has a **⬇ CSV*
 
 | Field | Definition |
 | ----- | ---------- |
-| Pick up date | Local day of the planned yard check-in at the **first** stop: FMC `firstYardArrival`, else SMC `stops[0].startTime` |
-| Delivery date | Local day of the planned yard check-in at the **last** stop: FMC `lastYardArrival`, else SMC last-stop `startTime` |
+| Pick up date | **UTC** day of the planned yard check-in at the **first** stop: FMC `firstYardArrival`, else SMC `stops[0].startTime` |
+| Delivery date | UTC day of the planned yard check-in at the **last** stop: FMC `lastYardArrival`, else SMC last-stop `startTime` |
 | Same / Different Day | pickup date == delivery date |
-| Status | FMC `executionStatus` per VRID; SMC's order-level status when the VRID isn't in FMC |
+| Status | FMC `executionStatus` per VRID (SMC's order-level status when the VRID isn't in FMC). An order whose SMC status is `CANCELLED` or `DRAFT` is shown as `CANCELLED` whatever FMC says — the HC Calculator's rule, so the two tools agree on "Planned VR IDs". |
 | Destination type | **INBOUND** when the destination node looks like an Amazon node code (`Config…runs.amazonNodePattern`, e.g. `DTM2`, `RSWR`); otherwise **OFF-AMAZON** (customer codes such as `PROCTER__53881_118`). A heuristic — adjust the pattern if a node is misclassified. |
 | Group | shipper id in `source_of_truth_crawler.csv` → **CST**, or **ELEX** when its `shipper_group` is `CST - ELEX`; not in the file → **FTL** |
 | D-1 COMPLETED | status in `completedStatuses` (`ARRIVED_AT_FINAL_DESTINATION`, `COMPLETED`); anything else is PENDING |
 | Cancellation reason | **best effort** — the FMC field name is unconfirmed; `content/fmc-bridge.js` tries several spellings and falls back to a cancel-type disruption. Shows `(not given)` on a cancelled run when none matched. |
 
-"Today" is the browser's local day. The SMC pull is `today − daysBack` →
-`today + daysForward` (1 / 1 in `config.js`).
+"Today" and all displayed planned times are **UTC** (the clock FMC reports in).
+The SMC pull is `today − daysBack` → `today + daysForward` (1 / 1 in `config.js`).
 
 ## How a load works
 

@@ -10,11 +10,13 @@
 
 import { teamConfig } from "./shippers.js";
 
-const pad = (n) => String(n).padStart(2, "0");
-const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+// UTC days throughout: the SMC bridge treats "YYYY-MM-DD" bounds as UTC, and
+// the page buckets runs by the UTC date of their planned yard check-in (the
+// same convention as the HC Calculator).
+const isoOf = (d) => d.toISOString().slice(0, 10);
+const addDays = (d, n) => new Date(d.getTime() + n * 86400_000);
 
-/** Today ± the configured days, as local "YYYY-MM-DD" bounds. */
+/** Today ± the configured days, as UTC "YYYY-MM-DD" bounds. */
 export function pickupWindow(team) {
   const cfg = teamConfig(team);
   const t = new Date();
