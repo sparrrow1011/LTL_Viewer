@@ -1,0 +1,17 @@
+{
+  "addons": {
+    "pg-tms-viewer@internal": {
+      "updates": [
+        {
+          "version": "0.4.2",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/pg-tms-viewer/pg-tms-viewer-0.4.2.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "140.0"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
