@@ -1506,7 +1506,7 @@
     document.body.appendChild(
       el("div", { id: "runs-app" }, [
         el("header", { class: "runs-header" }, [
-          el("h1", { text: "All Runs" }),
+          el("h1", { text: `All Runs v${browser.runtime.getManifest().version}` }),
           el("span", { class: "runs-badge", text: "SMC + FMC" }),
           el("span", { class: "runs-head-note", id: "runs-shippers" }),
           el("span", { class: "runs-head-note", id: "runs-status" }),
@@ -1546,7 +1546,7 @@
       return;
     }
     for (const s of _cfg.defaultExcludedStatuses || []) _f.excl.status.add(s);
-    document.title = `All Runs · ${_cfg.label}`;
+    document.title = `All Runs v${browser.runtime.getManifest().version} · ${_cfg.label}`;
     await loadAuto();
     setInterval(autoTick, AUTO_TICK_MS);
     // Multi-select dropdowns close when you click outside them (or press Esc).
