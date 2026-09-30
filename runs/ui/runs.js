@@ -781,7 +781,8 @@
     view.appendChild(pivots);
 
     // Origin node: shipper (collapsed, with its total) → origin node × hour.
-    const origPivot = pivot(day, ["shippername", "orig_node", "pickup_hour"]).sort((a, b) => a.cells[0].localeCompare(b.cells[0]) || a.cells[1].localeCompare(b.cells[1]) || a.cells[2].localeCompare(b.cells[2]));
+    // Shippers by volume (most VRIDs first); inside a shipper by planned hour.
+    const origPivot = pivot(day, ["shippername", "orig_node", "pickup_hour"]).sort((a, b) => a.cells[0].localeCompare(b.cells[0]) || a.cells[2].localeCompare(b.cells[2]) || a.cells[1].localeCompare(b.cells[1]));
     const origNodes = new Set(day.map((r) => r.orig_node)).size;
     const origGroups = [];
     for (const p of origPivot) {
@@ -793,6 +794,7 @@
       g.totals[0] += p.n;
       g.children.push([p.cells[1], p.cells[2], p.n]);
     }
+    origGroups.sort((a, b) => b.totals[0] - a.totals[0] || a.label.localeCompare(b.label));
     pivots.appendChild(
       panel(
         "Origin node",
