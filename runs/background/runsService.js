@@ -17,13 +17,16 @@ const isoOf = (d) => d.toISOString().slice(0, 10);
 const addDays = (d, n) => new Date(d.getTime() + n * 86400_000);
 
 /** Today ± the configured days, as UTC "YYYY-MM-DD" bounds. */
-export function pickupWindow(team) {
+export function pickupWindow(team, { daysForward = null } = {}) {
   const cfg = teamConfig(team);
   const t = new Date();
+  const max = cfg.runs.maxDaysForward || cfg.runs.daysForward || 0;
+  const fwd = daysForward == null ? cfg.runs.daysForward || 0 : Math.min(max, Math.max(0, Number(daysForward) || 0));
   return {
     start: isoOf(addDays(t, -(cfg.runs.daysBack || 0))),
-    end: isoOf(addDays(t, cfg.runs.daysForward || 0)),
+    end: isoOf(addDays(t, fwd)),
     today: isoOf(t),
+    daysForward: fwd,
   };
 }
 

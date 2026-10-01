@@ -99,6 +99,9 @@ export const Config = {
         // Pickup window pulled from SMC, relative to today (browser local).
         daysBack: 1,
         daysForward: 1,
+        // The page lets the user widen the forward window up to this many days
+        // (header "Days ahead"); the default stays daysForward.
+        maxDaysForward: 5,
         // VRIDs per fmcStatuses message (page loops; keeps each message < 30s).
         fmcChunk: 300,
         // Delivered when the FMC execution status is one of these.

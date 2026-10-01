@@ -115,7 +115,7 @@ const HANDLERS = {
 
   // ── the load, step by step (the page loops these) ──
   runsWindow: (msg) => ({
-    ...runsService.pickupWindow(teamOf(msg)),
+    ...runsService.pickupWindow(teamOf(msg), { daysForward: msg.daysForward }),
     smcOptions: runsService.smcOptions(teamOf(msg)),
   }),
   smcRows: (msg) => smcClient.fetchSourcingRows(msg.win || {}, msg.opts || {}),

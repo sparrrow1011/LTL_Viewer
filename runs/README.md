@@ -70,6 +70,9 @@ sortable, for the pick-up date or the whole window. Every table has a **⬇ CSV*
 
 "Today" and all displayed planned times are **UTC** (the clock FMC reports in).
 The SMC pull is `today − daysBack` → `today + daysForward` (1 / 1 in `config.js`).
+The header's **Days ahead** select widens the forward side up to
+`maxDaysForward` (5) for this browser; changing it reloads at once. Default
+stays +1 (tomorrow) because every auto-refresh re-pulls the whole window.
 
 ## How a load works
 

@@ -283,6 +283,9 @@
   const AUTO_TICK_MS = 5_000;
   let _autoMin = 15;
   let _nextAutoAt = 0;
+  // How many days ahead of today to pull from SMC (header select, 1..maxDaysForward).
+  const FWD_KEY = "runs.daysForward";
+  let _daysForward = 1;
 
   // ── normalisation ──────────────────────────────────────────────────────────
   const FMC_FIELDS = [
@@ -1328,7 +1331,7 @@
       [
         { key: "sessions", label: "Sessions", hint: "SMC · FMC · SharePoint" },
         { key: "shippers", label: "CST shipper source of truth", hint: "tags each run CST / ELEX / FTL" },
-        { key: "smc", label: "Fetch runs from SMC", hint: "every order with a VRID, yesterday → tomorrow" },
+        { key: "smc", label: "Fetch runs from SMC", hint: `every order with a VRID, yesterday → +${_daysForward} day${_daysForward === 1 ? "" : "s"}` },
         { key: "fmc", label: "Validate on FMC", hint: "status, planned times and stops per VRID" },
         { key: "build", label: "Build the dashboard", hint: "" },
       ],
@@ -1388,7 +1391,7 @@
     // SMC
     let win;
     try {
-      win = await msg("runsWindow");
+      win = await msg("runsWindow", { daysForward: _daysForward });
     } catch (e) {
       Pipeline.fail("smc", String((e && e.message) || e), { onRetry: retry });
       return;
@@ -1476,6 +1479,29 @@
     await browser.storage.local.set({ [AUTO_KEY]: _autoMin }).catch(() => {});
     autoReset();
   }
+  async function setDaysForward(n) {
+    _daysForward = Math.max(0, Number(n) || 0);
+    await browser.storage.local.set({ [FWD_KEY]: _daysForward }).catch(() => {});
+    load(); // the window changed → pull it now
+  }
+  async function loadDaysForward() {
+    const def = _cfg.daysForward == null ? 1 : _cfg.daysForward;
+    const max = _cfg.maxDaysForward || def;
+    _daysForward = def;
+    try {
+      const got = await browser.storage.local.get(FWD_KEY);
+      if (got[FWD_KEY] != null) _daysForward = Math.min(max, Math.max(0, Number(got[FWD_KEY]) || 0));
+    } catch {
+      /* default */
+    }
+    const sel = $("#runs-fwd");
+    if (sel) {
+      sel.innerHTML = "";
+      for (let d = 1; d <= max; d++) sel.appendChild(el("option", { value: String(d), text: d === 1 ? "+1 day (tomorrow)" : `+${d} days` }));
+      sel.value = String(Math.min(max, Math.max(1, _daysForward)));
+    }
+  }
+
   async function loadAuto() {
     const ar = _cfg.autoRefresh || { min: 5, max: 60, step: 5, default: 15 };
     _autoMin = ar.default;
@@ -1516,6 +1542,10 @@
           el("span", { class: "runs-head-note", id: "runs-status" }),
           el("span", { class: "runs-spacer" }),
           el("span", { class: "runs-head-note", id: "runs-identity" }),
+          el("label", { class: "runs-auto", title: "How far ahead of today to pull from SMC. Yesterday is always included. A wider window means a longer load." }, [
+            el("span", { text: "Days ahead" }),
+            el("select", { id: "runs-fwd", "aria-label": "Days ahead to load", onchange: (e) => setDaysForward(e.target.value) }),
+          ]),
           el("label", { class: "runs-auto" }, [
             el("span", { text: "Auto-refresh" }),
             el("select", { id: "runs-auto", "aria-label": "Auto-refresh interval", onchange: (e) => setAuto(e.target.value) }),
@@ -1552,6 +1582,7 @@
     for (const s of _cfg.defaultExcludedStatuses || []) _f.excl.status.add(s);
     document.title = `All Runs v${browser.runtime.getManifest().version} · ${_cfg.label}`;
     await loadAuto();
+    await loadDaysForward();
     setInterval(autoTick, AUTO_TICK_MS);
     // Multi-select dropdowns close when you click outside them (or press Esc).
     document.addEventListener("pointerdown", (e) => {
