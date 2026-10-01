@@ -64,6 +64,15 @@
               "strict_min_version": "115.0"
             }
           }
+        },
+        {
+          "version": "0.1.7",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/all-runs/all-runs-0.1.7.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
         }
       ]
     }
