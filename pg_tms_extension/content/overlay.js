@@ -79,6 +79,7 @@
   // SMC check result: { matches: {loadId: {orders:[...]}}, unmatched: [loadId], at: Date }
   let smc = null;
   let newOnly = false;
+  let hideIdc = false; // hide IDC-destination rows, leave the rest
   let filterTerms = []; // toolbar filter: every term must match somewhere in the row
   let accessMissing = []; // origins the add-on can't touch yet (see siteAccess)
   let extractMeta = { mapping: "", missing: [] }; // how tms.js mapped the columns
@@ -95,6 +96,13 @@
   const destPP = (r) => {
     const p = poFor(r);
     return (p && p.found && p.fcId) || r.destNode || r.destAddress || "";
+  };
+  // The destination NODE code to judge IDC on: PO fcId (authoritative) first,
+  // then the TMS node. A street-address row only has a node after Check pulls
+  // the PO, so IDC on those rows appears once the PO is known.
+  const destNodeOf = (r) => {
+    const p = poFor(r);
+    return (p && p.found && p.fcId) || r.destNode || "";
   };
   // The portal renders the Vendor Delivery Dates in a FIXED GMT+1 (not DST), so
   // e.g. 2026-10-06T00:00Z shows as "06/10/2026 01:00 GMT+1". Match that exactly
@@ -146,7 +154,8 @@
         const p = poFor(r);
         const pp = p && p.found && p.fcId;
         const v = destPP(r);
-        return `${esc(v || "—")}${pp ? ' <span class="pg-pp">PP</span>' : ""}`;
+        const idc = isIdc(destNodeOf(r)) ? ' <span class="pg-flag pg-idc">IDC</span>' : "";
+        return `${esc(v || "—")}${idc}${pp ? ' <span class="pg-pp">PP</span>' : ""}`;
       },
     },
     { key: "appointment", label: "Appointment (ISA)" },
@@ -304,7 +313,8 @@
 
   function renderFlags(r) {
     const flags = (r.flags || []).slice();
-    if (isIdc(r.destNode)) flags.push({ level: "idc", msg: `IDC site (${esc(r.destNode)})` });
+    const dnode = destNodeOf(r);
+    if (isIdc(dnode)) flags.push({ level: "idc", msg: `IDC site (${esc(dnode)})` });
     if (!flags.length) return `<span class="pg-flag pg-ok">✓ No issues</span>`;
     return (
       `<div class="pg-flags">` +
@@ -348,6 +358,7 @@
 
   function visibleRows() {
     let rows = newOnly && smc ? lastRows.filter(isNew) : lastRows;
+    if (hideIdc) rows = rows.filter((r) => !isIdc(destNodeOf(r)));
     if (filterTerms.length) {
       // OR across terms: paste several IDs (space/comma-separated) and see every
       // row matching ANY of them.
@@ -403,13 +414,13 @@
     const siteKey = cfg.siteCodes[r.site] || "";
     const d = cfg.smcOrderDefaults || {};
     const lastPrice = (settings.prices || {})[siteKey];
-    const pickupDate = dateOf(r.crddIso) || new Date().toISOString().slice(0, 10);
-    const pickupFromTms = timeOf(r.crddIso);
-    // Delivery defaults from the PO window (PP) when we have it — window end is
-    // the Latest Vendor Delivery Date — else the TMS delivery window.
+    // Delivery anchors to the PO window (PP) end = Latest Vendor Delivery Date;
+    // else the TMS delivery window. Pickup is then derived from transit time
+    // once we fetch it (pickup end = delivery − T, 2-hour pickup window).
     const po = poFor(r);
     const poEndDate = po && po.found ? dateOf(po.windowEnd) : "";
     const poEndTime = po && po.found ? timeOf(po.windowEnd) : "";
+    const pickupDate = dateOf(r.crddIso) || new Date().toISOString().slice(0, 10);
     const deliveryDate = poEndDate || dateOf(r.deliveryFromIso) || pickupDate;
     const deliveryTimeDefault = (poEndTime && poEndTime !== "00:00" ? poEndTime : "") || d.deliveryTime || "12:00";
     const inputsHtml = `
@@ -419,19 +430,20 @@
         <tr><th>Pickup site</th><td><b>${esc(siteName(r))}</b> <span class="pg-muted pg-small">${
           site && site.smcPickup ? "SMC location “" + esc(site.smcPickup) + "”" : "no SMC location name configured for this site"
         }</span></td></tr>
-        <tr><th>Delivery</th><td><b>${esc(r.destNode || "?")}</b>${isIdc(r.destNode) ? ' <span class="pg-flag pg-idc">IDC</span>' : ""} <span class="pg-muted pg-small">from “${esc(r.destAddress)}”</span></td></tr>
+        <tr><th>Delivery</th><td><b>${esc(destNodeOf(r) || r.destNode || "?")}</b>${isIdc(destNodeOf(r)) ? ' <span class="pg-flag pg-idc">IDC</span>' : ""} <span class="pg-muted pg-small">from “${esc(r.destAddress)}”</span></td></tr>
         <tr><th>Pallets / weight</th><td><b>${esc(r.smcPallets || 0)}</b> ${esc(d.palletType || "")} · <b>${esc(r.weight === "" ? 0 : r.weight)}</b> kg</td></tr>
         <tr><th>PO window</th><td>${esc(r.poWindow || "—")}</td></tr>
       </table>
       <h4>Times (site local)</h4>
       <div class="pg-grid2">
-        <label class="pg-field">Pickup date<input type="date" id="pg-d-pdate" value="${esc(pickupDate)}"></label>
-        <label class="pg-field">Pickup from<input type="time" id="pg-d-pfrom" value="${esc(pickupFromTms && pickupFromTms !== "00:00" ? pickupFromTms : d.pickupFrom || "07:00")}"></label>
-        <label class="pg-field">Pickup to<input type="time" id="pg-d-pto" value="${esc(d.pickupTo || "13:00")}"></label>
         <label class="pg-field">Delivery date<input type="date" id="pg-d-ddate" value="${esc(deliveryDate)}"></label>
         <label class="pg-field">Delivery time<input type="time" id="pg-d-dtime" value="${esc(deliveryTimeDefault)}"></label>
+        <label class="pg-field">Pickup date<input type="date" id="pg-d-pdate" value="${esc(pickupDate)}"></label>
+        <label class="pg-field">Pickup from<input type="time" id="pg-d-pfrom" value="07:00"></label>
+        <label class="pg-field">Pickup to (<span class="pg-muted">+2h, auto</span>)<input type="time" id="pg-d-pto" value="09:00" readonly></label>
         <label class="pg-field">Shipper price (${esc((site && site.currency) || "EUR")})<input type="number" id="pg-d-price" min="0" step="1" value="${esc(lastPrice || "")}" placeholder="LINE_HAUL"></label>
       </div>
+      <div id="pg-d-transit" class="pg-small pg-muted">Transit time: …</div>
       <div class="pg-panel-actions">
         <button type="button" id="pg-d-preview">Preview</button>
         <button type="button" id="pg-d-create" class="pg-primary" disabled>Create draft in SMC</button>
@@ -540,19 +552,174 @@
       }
     };
 
-    $("#pg-d-preview", root).addEventListener("click", doPreview);
+    // ── transit-time alignment ───────────────────────────────────────────────
+    // Delivery anchors to the PO window; pickup must satisfy
+    //   delivery == pickup_end + transit   (±2h)
+    // Pickup window is fixed at 2h (pickup_to = pickup_from + 2h). Any edit to
+    // pickup/delivery re-fetches transit (cached per node pair) and re-checks;
+    // misaligned → transit line red + Create disabled.
+    const TOL_MS = 2 * 3600_000;
+    let transitSecs = null; // cached transit for the current node pair
+    let transitKey = ""; // "<origin>-><dest>" the cache is for
+    let aligned = true;
+
+    const el = (id) => $("#" + id, root);
+    const localMs = (dateVal, timeVal) => {
+      // Interpret the date+time inputs as a wall clock (comparison only; both
+      // sides use the same frame, so the absolute zone doesn't matter here).
+      if (!dateVal || !timeVal) return NaN;
+      const [y, m, dd] = dateVal.split("-").map(Number);
+      const [hh, mi] = timeVal.split(":").map(Number);
+      return Date.UTC(y, (m || 1) - 1, dd || 1, hh || 0, mi || 0);
+    };
+    const addToTime = (timeVal, hours) => {
+      const [hh, mi] = String(timeVal || "0:0").split(":").map(Number);
+      const t = ((hh || 0) * 60 + (mi || 0) + hours * 60 + 1440) % 1440;
+      return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+    };
+
+    // Keep pickup-to = pickup-from + 2h (always a 2-hour window).
+    const syncPickupWindow = () => {
+      el("pg-d-pto").value = addToTime(el("pg-d-pfrom").value, 2);
+    };
+
+    async function ensureTransit() {
+      const origin = (site && site.smcPickupCode) || (site && site.smcPickup) || "";
+      const dest = (chosenNode || destNodeOf(r) || r.destNode || "").toUpperCase();
+      if (!origin || !dest) return null;
+      const key = `${origin}->${dest}`;
+      if (key === transitKey && transitSecs != null) return transitSecs;
+      $("#pg-d-transit", root).className = "pg-small pg-muted";
+      $("#pg-d-transit", root).textContent = "Transit time: …";
+      try {
+        const res = await call("smcTransit", { originCode: origin, destCode: dest });
+        transitSecs = res && res.seconds != null ? res.seconds : null;
+        transitKey = key;
+      } catch (e) {
+        transitSecs = null;
+        transitKey = "";
+      }
+      return transitSecs;
+    }
+
+    const fmtDur = (secs) => {
+      const h = Math.floor(secs / 3600);
+      const m = Math.round((secs % 3600) / 60);
+      return m ? `${h}h ${m}m` : `${h}h`;
+    };
+
+    // Compare pickup_end + T against delivery; paint the transit line; gate Create.
+    function checkAlignment() {
+      const t = $("#pg-d-transit", root);
+      if (transitSecs == null) {
+        t.className = "pg-small pg-warn";
+        t.textContent = "Transit time unavailable (SMC) — alignment not enforced.";
+        aligned = true; // don't block when SMC can't tell us
+        return;
+      }
+      const pickEndMs = localMs(el("pg-d-pdate").value, el("pg-d-pto").value);
+      const delMs = localMs(el("pg-d-ddate").value, el("pg-d-dtime").value);
+      if (Number.isNaN(pickEndMs) || Number.isNaN(delMs)) {
+        aligned = false;
+        t.className = "pg-small pg-err-txt";
+        t.textContent = "Enter pickup and delivery times.";
+        return;
+      }
+      const expectedDel = pickEndMs + transitSecs * 1000;
+      const diffMs = delMs - expectedDel;
+      const suggestedPickEnd = new Date(delMs - transitSecs * 1000);
+      const sp = (n) => String(n).padStart(2, "0");
+      const suggestStr = `${sp(suggestedPickEnd.getUTCHours())}:${sp(suggestedPickEnd.getUTCMinutes())} on ${sp(suggestedPickEnd.getUTCDate())}/${sp(suggestedPickEnd.getUTCMonth() + 1)}`;
+      aligned = Math.abs(diffMs) <= TOL_MS;
+      if (aligned) {
+        t.className = "pg-small pg-ok-txt";
+        t.textContent = `Transit ${fmtDur(transitSecs)} · pickup end + transit = delivery ✓ (within ±2h)`;
+      } else {
+        const off = Math.round(Math.abs(diffMs) / 3600_000 * 10) / 10;
+        t.className = "pg-small pg-err-txt";
+        t.innerHTML = `Transit ${esc(fmtDur(transitSecs))} · misaligned by ${esc(off)}h — pickup end should be about <b>${esc(suggestStr)}</b> for a delivery of ${esc(el("pg-d-dtime").value)}. ` +
+          `<button type="button" class="pg-link" id="pg-d-snap">Snap pickup to suggested</button>`;
+        const snap = $("#pg-d-snap", root);
+        if (snap) snap.addEventListener("click", () => {
+          el("pg-d-pdate").value = `${suggestedPickEnd.getUTCFullYear()}-${sp(suggestedPickEnd.getUTCMonth() + 1)}-${sp(suggestedPickEnd.getUTCDate())}`;
+          el("pg-d-pfrom").value = addToTime(`${sp(suggestedPickEnd.getUTCHours())}:${sp(suggestedPickEnd.getUTCMinutes())}`, -2);
+          syncPickupWindow();
+          onEdit();
+        });
+      }
+    }
+
+    // Set the delivery → derive pickup end = delivery − T, pickup window 2h.
+    function alignPickupToDelivery() {
+      if (transitSecs == null) return;
+      const delMs = localMs(el("pg-d-ddate").value, el("pg-d-dtime").value);
+      if (Number.isNaN(delMs)) return;
+      const pickEnd = new Date(delMs - transitSecs * 1000);
+      const sp = (n) => String(n).padStart(2, "0");
+      el("pg-d-pdate").value = `${pickEnd.getUTCFullYear()}-${sp(pickEnd.getUTCMonth() + 1)}-${sp(pickEnd.getUTCDate())}`;
+      const endHHMM = `${sp(pickEnd.getUTCHours())}:${sp(pickEnd.getUTCMinutes())}`;
+      el("pg-d-pfrom").value = addToTime(endHHMM, -2); // from = end − 2h
+      syncPickupWindow();
+    }
+
+    function refreshCreateEnabled() {
+      // Create requires a successful Preview AND alignment.
+      $("#pg-d-create", root).disabled = !prepared || !aligned;
+    }
+
+    // Any change invalidates the preview and re-checks alignment.
+    const onEdit = async () => {
+      prepared = null;
+      $("#pg-d-create", root).disabled = true;
+      out().innerHTML = `<span class="pg-muted">Inputs changed — click Preview to rebuild.</span>`;
+      syncPickupWindow();
+      await ensureTransit();
+      checkAlignment();
+      refreshCreateEnabled();
+    };
+
+    const doPreviewGated = async () => {
+      await ensureTransit();
+      checkAlignment();
+      if (!aligned) {
+        out().innerHTML = `<div class="pg-flag pg-error">Pickup and delivery aren't aligned to the transit time — fix the times above (or Snap) before previewing.</div>`;
+        $("#pg-d-create", root).disabled = true;
+        return;
+      }
+      await doPreview();
+      refreshCreateEnabled();
+    };
+
+    $("#pg-d-preview", root).addEventListener("click", doPreviewGated);
     $("#pg-d-create", root).addEventListener("click", doCreate);
     $("#pg-d-copy", root).addEventListener("click", () => {
       if (prepared) copyText(JSON.stringify(prepared.payload, null, 2), "Copied the createV3 payload (JSON).");
     });
-    for (const id of ["pg-d-pdate", "pg-d-pfrom", "pg-d-pto", "pg-d-ddate", "pg-d-dtime", "pg-d-price"]) {
-      $("#" + id, root).addEventListener("change", () => {
-        prepared = null;
-        $("#pg-d-create", root).disabled = true;
-        out().innerHTML = `<span class="pg-muted">Inputs changed — click Preview again.</span>`;
+    // Editing delivery re-anchors pickup; editing pickup just re-checks.
+    for (const id of ["pg-d-ddate", "pg-d-dtime"]) {
+      el(id).addEventListener("change", async () => {
+        await ensureTransit();
+        alignPickupToDelivery();
+        onEdit();
       });
     }
-    doPreview();
+    for (const id of ["pg-d-pdate", "pg-d-pfrom"]) {
+      el(id).addEventListener("change", onEdit);
+    }
+    el("pg-d-price").addEventListener("change", () => {
+      prepared = null;
+      $("#pg-d-create", root).disabled = true;
+      out().innerHTML = `<span class="pg-muted">Price changed — click Preview to rebuild.</span>`;
+    });
+
+    // Initial: fetch transit, align pickup to the PO-window delivery, check.
+    (async () => {
+      await ensureTransit();
+      alignPickupToDelivery();
+      checkAlignment();
+      await doPreview();
+      refreshCreateEnabled();
+    })();
   }
 
   function setButtons() {
@@ -564,6 +731,9 @@
     const chk = $("#pg-new-only", root);
     chk.disabled = !smc;
     chk.checked = newOnly && !!smc;
+    const idcChk = $("#pg-idc-hide", root);
+    idcChk.disabled = none;
+    idcChk.checked = hideIdc;
   }
 
   function summary() {
@@ -606,8 +776,13 @@
     if (configError) {
       html += ` <span class="pg-flag pg-error">Background unreachable: ${esc(configError)}</span>`;
     }
-    if (filterTerms.length) {
-      html += ` <span class="pg-muted">· showing ${visibleRows().length} of ${n} (filter: ${esc(filterTerms.join(" "))})</span>`;
+    const vis = visibleRows().length;
+    if (vis !== n) {
+      const bits = [];
+      if (newOnly) bits.push("new only");
+      if (hideIdc) bits.push("IDC hidden");
+      if (filterTerms.length) bits.push(`filter: ${esc(filterTerms.join(" "))}`);
+      html += ` <span class="pg-muted">· showing ${vis} of ${n}${bits.length ? " (" + bits.join(", ") + ")" : ""}</span>`;
     }
     return html;
   }
@@ -617,6 +792,7 @@
     const api = window.__pgTms;
     smc = null; // the list changed → the check is stale
     newOnly = false;
+    hideIdc = false;
     if (!api || !hasTable()) {
       lastRows = [];
       renderTable();
@@ -629,7 +805,7 @@
     extractMeta = { mapping: data.mapping || "positional", missing: data.missingColumns || [] };
     for (const r of lastRows) {
       r.siteName = siteName(r);
-      r.idc = isIdc(r.destNode) ? "IDC" : "";
+      r.idc = isIdc(destNodeOf(r)) ? "IDC" : "";
     }
     renderTable();
     setButtons();
@@ -703,10 +879,12 @@
             const p = pos[r.po] || pos[String(r.po).toUpperCase()];
             if (p) smc.po[r.loadId] = p;
           }
-          // Flatten for CSV/filter (windowPP/destPP read smc.po).
+          // Flatten for CSV/filter (windowPP/destPP read smc.po) and refresh
+          // IDC now that the PO may have given a node for street-address rows.
           for (const r of lastRows) {
             r.poWindowPP = windowPP(r);
             r.destinationPP = destPP(r);
+            r.idc = isIdc(destNodeOf(r)) ? "IDC" : "";
           }
           renderTable();
           setStatus(summary(), "ok");
@@ -1097,6 +1275,7 @@
           <button type="button" id="pg-btn-refresh" title="Re-read the list">Refresh</button>
           <button type="button" id="pg-btn-smc" class="pg-primary" disabled title="Check SMC + Procurement Portal for every row">Check</button>
           <label class="pg-check" title="Show only loads without an SMC order"><input type="checkbox" id="pg-new-only" disabled> New only</label>
+          <label class="pg-check" title="Hide IDC-site loads (destination is a 1DC node), leaving the rest"><input type="checkbox" id="pg-idc-hide"> Hide IDC</label>
           <button type="button" id="pg-btn-new" disabled title="Load ID + PO of the new loads, tab-separated">Copy new loads</button>
           <button type="button" id="pg-btn-copy" disabled>Copy table</button>
           <button type="button" id="pg-btn-csv" disabled>Export CSV</button>
@@ -1135,6 +1314,12 @@
     $("#pg-new-only", root).addEventListener("change", (e) => {
       newOnly = e.target.checked;
       renderTable();
+      if (lastRows.length) setStatus(summary(), "");
+    });
+    $("#pg-idc-hide", root).addEventListener("change", (e) => {
+      hideIdc = e.target.checked;
+      renderTable();
+      if (lastRows.length) setStatus(summary(), "");
     });
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape" || !isOpen()) return;
@@ -1179,6 +1364,18 @@
       renderTable();
       if (lastRows.length) setStatus(summary(), "");
       return visibleRows().length;
+    },
+    setHideIdc: (v) => {
+      hideIdc = !!v;
+      const chk = $("#pg-idc-hide", root);
+      if (chk) chk.checked = hideIdc;
+      renderTable();
+      if (lastRows.length) setStatus(summary(), "");
+      return visibleRows().length;
+    },
+    prepare: (loadId) => {
+      const r = lastRows.find((x) => x.loadId === loadId);
+      if (r) openPrepare(r);
     },
   };
 })();

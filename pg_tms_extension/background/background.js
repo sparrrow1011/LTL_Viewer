@@ -138,6 +138,12 @@ const HANDLERS = {
   poLookup: (msg) => portalClient.lookupPos(msg.poIds || []),
   portalPing: () => portalClient.ping(),
 
+  // SMC transit time (seconds) between a pickup site code and a destination node.
+  smcTransit: async (msg) => {
+    const s = await getSettings();
+    return smcClient.transitTime(msg.originCode, msg.destCode, (msg.shipperId || s.shipperIds[0]));
+  },
+
   // Draft creation: prepare = resolve + build payload (no write); create = POST it.
   smcPrepareDraft: async (msg) => {
     const s = await getSettings();

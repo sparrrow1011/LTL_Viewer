@@ -193,6 +193,19 @@ to the TMS delivery window / destination when the portal has no PO. The draft's
 delivery date and time default from the PO window (window end = Latest Vendor
 Delivery Date).
 
+The draft panel fetches the SMC transit time for the pickup node → delivery node
+(`POST /transit-time/calculate` → `transitTimeInSeconds`) and keeps pickup and
+delivery aligned: delivery anchors to the PO window, the pickup window is fixed
+at 2 hours, and pickup end must equal delivery − transit within ±2h. Editing
+delivery re-anchors pickup; editing pickup re-checks; any edit re-fetches
+transit. When misaligned the transit line turns red and **Create draft** is
+disabled (with a "Snap pickup to suggested" shortcut); it re-enables after a
+Preview once aligned. If SMC returns no transit time, alignment isn't enforced.
+
+The grid also has a **Hide IDC** toggle (next to New only) that removes the
+IDC-site rows and leaves the rest, and the IDC tag now uses the PO's delivery FC
+so street-address rows flag IDC after Check.
+
 The toolbar **Filter** box narrows the loaded rows across all columns; space-
 separate terms and every term must match (e.g. `amiens 383`). The status line
 shows "showing X of Y". It filters the extension's own data — it does not call

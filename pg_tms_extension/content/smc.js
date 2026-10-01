@@ -418,6 +418,19 @@
 
   const MILEAGE_URL = `${ORIGIN}/mileage/calculate`;
   const CREATE_URL = `${ORIGIN}/shipper/order/createV3/`;
+  const TRANSIT_URL = `${ORIGIN}/transit-time/calculate`;
+
+  // Transit time (seconds) between two SMC node codes. Response:
+  // { driverType, transitTimeInSeconds }. Returns { seconds }.
+  async function transitTime(originCode, destCode, shipperId) {
+    const { json } = await postJson(TRANSIT_URL, {
+      originLocation: { type: "nodeLocation", nodeCode: originCode },
+      destinationLocation: { type: "nodeLocation", nodeCode: destCode },
+      shipperId: String(shipperId || ""),
+    });
+    const secs = json && (json.transitTimeInSeconds ?? findNumber(json, ["transitTimeInSeconds", "seconds"]));
+    return { seconds: Number.isFinite(secs) ? secs : null, raw: json };
+  }
 
   // Distance between two postal codes, as the create form computes it.
   // Response shape not captured — take the first numeric "value" we can find.
@@ -562,6 +575,11 @@
         .then((r) => ({ bridge: true, ok: true, ...r }))
         .catch(fail);
     }
+    if (msg.action === "smc:transit") {
+      return transitTime(msg.originCode, msg.destCode, msg.shipperId)
+        .then((r) => ({ bridge: true, ok: true, ...r }))
+        .catch(fail);
+    }
     if (msg.action === "smc:createOrder") {
       return createOrder(msg.payload || {})
         .then((r) => ({ bridge: true, ok: true, ...r }))
@@ -578,6 +596,7 @@
     searchLocation,
     searchLocations,
     mileage,
+    transitTime,
     createOrder,
     ping,
     getRequester,

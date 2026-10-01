@@ -217,6 +217,12 @@ export async function createOrder(payload) {
   return { orderId: resp.orderId || null, response: resp.response, status: resp.status };
 }
 
+/** Transit time (seconds) between two SMC node codes → { seconds }. */
+export async function transitTime(originCode, destCode, shipperId) {
+  const resp = await bridge.call({ action: "smc:transit", originCode, destCode, shipperId });
+  return { seconds: resp.seconds ?? null };
+}
+
 /** Order-detail rows for the given SMC order ids (fields the search omits). */
 export async function fetchDetails(ids) {
   const resp = await bridge.call({ action: "smc:details", ids });
