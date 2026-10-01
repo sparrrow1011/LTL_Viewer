@@ -271,6 +271,7 @@
     excl: {
       group: new Set(),
       orig_country: new Set(),
+      dest_country: new Set(),
       shippername: new Set(),
       status: new Set(["CANCELLED"]),
       dest_type: new Set(),
@@ -367,7 +368,7 @@
   }
 
   // ── filtering / aggregation ────────────────────────────────────────────────
-  const FILTER_KEYS = ["group", "orig_country", "shippername", "status", "dest_type", "cancellation_reason"];
+  const FILTER_KEYS = ["group", "orig_country", "dest_country", "shippername", "status", "dest_type", "cancellation_reason"];
 
   function baseRows() {
     return _rows.filter((r) => FILTER_KEYS.every((k) => !_f.excl[k].has(r[k])));
@@ -675,6 +676,7 @@
     const defs = [
       ["Group", "group"],
       ["Origin country", "orig_country"],
+      ["Destination country", "dest_country"],
       ["Shipper", "shippername"],
       ["Status", "status"],
       ["Destination type", "dest_type"],
@@ -878,7 +880,7 @@
   // sets the day (or tick "whole window").
   const TBD_DEFAULT_STATUSES = ["IN_TRANSIT", "PLANNED"];
   const _tf = {
-    excl: { group: new Set(), shippername: new Set(), orig_node: new Set(), dest_node: new Set() },
+    excl: { group: new Set(), shippername: new Set(), orig_node: new Set(), dest_node: new Set(), dest_country: new Set() },
     status: new Set(TBD_DEFAULT_STATUSES), // include-mode
   };
 
@@ -906,6 +908,7 @@
         ms("Shipper", "shippername", { set: _tf.excl.shippername }),
         ms("Origin node", "orig_node", { set: _tf.excl.orig_node }),
         ms("Destination node", "dest_node", { set: _tf.excl.dest_node }),
+        ms("Destination country", "dest_country", { set: _tf.excl.dest_country }),
         ms("Status", "status", { set: _tf.status, mode: "include" }),
         pickupRangeFields(),
         el("span", { class: "runs-spacer" }),
@@ -1096,6 +1099,7 @@
     ["status", "Status", (r) => statusPill(r)],
     ["carrier", "Carrier", (r) => r.carrier],
     ["orig_country", "Orig", (r) => r.orig_country],
+    ["dest_country", "Dest", (r) => r.dest_country],
     ["orig_node", "Origin node", (r) => r.orig_node],
     ["dest_node", "Dest node", (r) => r.dest_node],
     ["dest_type", "Dest type", (r) => r.dest_type],

@@ -16,7 +16,7 @@ four extensions — keep them identical; only their `init()` arguments differ).
 ## What it shows
 
 Filters (all applied client-side, over the fetched window):
-Pick up date (default today) · Group (CST / ELEX / FTL) · Origin country ·
+Pick up date (default today) · Group (CST / ELEX / FTL) · Origin country · Destination country ·
 Shipper · Status (default: everything except CANCELLED) · Destination type
 (INBOUND / OFF-AMAZON) · Cancellation reason · Delivery date for the D-1 panel
 (default yesterday). Multi-selects remember what you **excluded**, so a value
