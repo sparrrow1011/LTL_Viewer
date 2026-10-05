@@ -780,14 +780,14 @@
     return !!(teamCfg && (teamCfg.shipperList || teamCfg.shipperSource));
   }
 
-  async function ensureShippers(force = false) {
+  async function ensureShippers(force = false, { useFile = false } = {}) {
     if (!teamHasShippers()) {
       shipperMap = null;
       shipperInfo = null;
       return null;
     }
     if (shipperMap && !force) return shipperMap;
-    const res = await msg("getShippers", { force });
+    const res = await msg("getShippers", { force, useFile });
     shipperMap = (res && res.shippers) || {};
     shipperInfo = res || null;
     return shipperMap;
@@ -1956,8 +1956,23 @@
     if (group) group.style.display = has ? "" : "none";
     if (!has) return;
     const n = shipperMap ? Object.keys(shipperMap).length : 0;
+    // The manual import is ALWAYS available — it used to be hidden whenever the
+    // SharePoint CSV was readable, which made it look like it had been removed.
+    const imp = root.querySelector("#ltl-shippers-import");
+    if (imp) {
+      imp.style.display = teamCfg && teamCfg.shipperList ? "" : "none";
+      imp.title =
+        `Upload a shipper CSV (shipperid, shippername, shipper_group) into the ` +
+        `“${teamCfg && teamCfg.shipperList}” list. It replaces the list and is used ` +
+        `instead of the SharePoint CSV until you click Shippers ↻.`;
+    }
     const src = shipperInfo ? shipperInfo.source : "none";
-    if (src === "file") {
+    if (src === "manual") {
+      btn.textContent = `Shippers (${n}) · manual ↻`;
+      btn.title =
+        `${teamCfg.label} shippers came from a manual import into “${teamCfg.shipperList}”.\n` +
+        `Click to discard the override and re-read the SharePoint CSV instead.`;
+    } else if (src === "file") {
       btn.textContent = `Shippers (${n}) ↻`;
       btn.title =
         `${teamCfg.label} shippers read automatically from SharePoint:\n${shipperInfo.path}\n` +
@@ -1973,11 +1988,12 @@
 
   async function onShippersClick() {
     if (!teamHasShippers()) return;
-    if (shipperInfo && shipperInfo.source === "file") {
-      // Re-read the CSV from SharePoint and reload the table.
+    const src = shipperInfo ? shipperInfo.source : "none";
+    if (src === "file" || src === "manual") {
+      // Re-read the SharePoint CSV, dropping any manual override.
       try {
         setBusy(true);
-        await ensureShippers(true);
+        await ensureShippers(true, { useFile: true });
         updateShippersButton();
         toast(`Shippers refreshed: ${Object.keys(shipperMap || {}).length}`, "success");
       } catch (e) {
@@ -2085,7 +2101,8 @@
         const res = await msg("importShippers", { rows: valid });
         if (res.status !== "ok") throw new Error(res.message || "failed");
         toast(`Shippers imported: +${res.added} ~${res.updated} -${res.deleted}`, "success");
-        // Re-read (the CSV file still wins if it has since become reachable).
+        // The import sets a "use the list" override, so this re-read returns
+        // what was just uploaded rather than the SharePoint CSV.
         await ensureShippers(true);
         updateShippersButton();
       } catch (e) {
@@ -2377,7 +2394,8 @@
         <button id="ltl-clear" class="ltl-btn ltl-gray">Clear</button>
         <span class="ltl-spacer"></span>
         <button id="ltl-covered" class="ltl-btn ltl-gray">Recently covered (0)</button>
-        <button id="ltl-shippers" class="ltl-btn ltl-gray" style="display:none">Shippers · Import</button>
+        <button id="ltl-shippers" class="ltl-btn ltl-gray" style="display:none">Shippers</button>
+        <button id="ltl-shippers-import" class="ltl-btn ltl-gray" style="display:none" title="Upload a shipper CSV by hand">Import…</button>
         <input type="file" id="ltl-shippers-file" accept=".csv,text/csv" style="display:none" />
         <button id="ltl-eml" class="ltl-btn ltl-green">Send Selected via EML (<span id="ltl-eml-count">0</span>)</button>
         <button id="ltl-marksent" class="ltl-btn">Mark Selected Sent</button>
@@ -2526,6 +2544,7 @@
     });
     root.querySelector("#ltl-refresh").addEventListener("click", fetchData);
     root.querySelector("#ltl-shippers").addEventListener("click", onShippersClick);
+    root.querySelector("#ltl-shippers-import").addEventListener("click", onImportShippers);
     root.querySelector("#ltl-covered").addEventListener("click", async () => {
       const goingToCovered = viewMode !== "covered";
       setViewMode(goingToCovered ? "covered" : "sourcing");

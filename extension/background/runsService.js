@@ -564,6 +564,29 @@ async function _storePath(team, path) {
   }
 }
 
+// Manual-override of the shipper source. The SharePoint CSV normally wins, so a
+// hand-uploaded list would otherwise be ignored the moment the file is
+// reachable. Importing sets this to "list"; the toolbar's ↻ clears it and goes
+// back to the file.
+const SRC_OVERRIDE_KEY = (team) => `ltl.shipperSource.${team}`;
+
+async function _storedOverride(team) {
+  try {
+    const got = await browser.storage.local.get(SRC_OVERRIDE_KEY(team));
+    return (got && got[SRC_OVERRIDE_KEY(team)]) || null;
+  } catch {
+    return null;
+  }
+}
+async function _setOverride(team, value) {
+  try {
+    if (value) await browser.storage.local.set({ [SRC_OVERRIDE_KEY(team)]: value });
+    else await browser.storage.local.remove(SRC_OVERRIDE_KEY(team));
+  } catch {
+    /* best effort */
+  }
+}
+
 /**
  * Try to read the shipper CSV from SharePoint. Returns { shippers, path } or
  * null if no candidate path works. Session expiry is re-thrown so the overlay
@@ -615,18 +638,30 @@ async function _shippersFromSharePointFile(team, src) {
  *
  * Order: SharePoint CSV file (Config.TEAMS[x].shipperSource, cached for
  * ttlMinutes) → the team's SharePoint list (manual import) → empty.
- * `force` bypasses the cache.
+ *
+ * EXCEPT when a manual import has set the "list" override, in which case the
+ * hand-uploaded list wins until `useFile` clears it. Without that, importing a
+ * CSV by hand did nothing whenever the SharePoint file was readable.
+ *
+ * `force` bypasses the cache; `useFile` also drops the override.
+ * `source` comes back as "file" | "list" | "manual" | "none".
  */
-export async function getShippers(team, { force = false } = {}) {
+export async function getShippers(team, { force = false, useFile = false } = {}) {
   const cfg = store.teamConfig(team);
   if (!cfg.shipperList && !cfg.shipperSource) {
     return { shippers: {}, source: "none", path: null, count: 0, fetchedAt: null };
   }
 
-  const src = cfg.shipperSource;
+  if (useFile) {
+    await _setOverride(cfg.key, null);
+    _shipperCache.delete(cfg.key);
+  }
+  const override = useFile ? null : await _storedOverride(cfg.key);
+
+  const src = override === "list" ? null : cfg.shipperSource;
   const cached = _shipperCache.get(cfg.key);
-  const ttlMs = ((src && src.ttlMinutes) || 30) * 60_000;
-  if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) return cached;
+  const ttlMs = ((cfg.shipperSource && cfg.shipperSource.ttlMinutes) || 30) * 60_000;
+  if (!force && !useFile && cached && Date.now() - cached.fetchedAt < ttlMs) return cached;
 
   let result = null;
   if (src) {
@@ -649,8 +684,11 @@ export async function getShippers(team, { force = false } = {}) {
     }
     result = {
       shippers,
-      source: Object.keys(shippers).length ? "list" : "none",
+      // "manual" = the list is in use because someone imported it, not just
+      // because the file was missing. The toolbar says so.
+      source: Object.keys(shippers).length ? (override === "list" ? "manual" : "list") : "none",
       path: cfg.shipperList,
+      override: override === "list",
     };
   }
 
@@ -676,6 +714,10 @@ export async function importShippers(team, rows) {
   }
   if (!byId.size) return { status: "error", message: "No valid shipper rows found" };
   const result = await store.saveShippers(team, [...byId.values()]);
-  _shipperCache.delete(store.teamConfig(team).key); // next getShippers re-reads
-  return { status: "ok", ...result, fields: SHIPPER_FIELDS };
+  const key = store.teamConfig(team).key;
+  // Make the import actually take effect: without this the SharePoint CSV
+  // would keep winning on the next read and the upload would look ignored.
+  await _setOverride(key, "list");
+  _shipperCache.delete(key); // next getShippers re-reads
+  return { status: "ok", ...result, fields: SHIPPER_FIELDS, source: "manual" };
 }

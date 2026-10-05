@@ -127,7 +127,8 @@ const HANDLERS = {
   // Shipper source of truth: { shippers: {shipperid: {...}}, source, path, count }.
   // Read from the team's SharePoint CSV (CST_viewer's source_of_truth_crawler.csv),
   // falling back to the team's SharePoint list. msg.force bypasses the cache.
-  getShippers: (msg) => runsService.getShippers(teamOf(msg), { force: !!msg.force }),
+  getShippers: (msg) =>
+    runsService.getShippers(teamOf(msg), { force: !!msg.force, useFile: !!msg.useFile }),
   // Replace the team's shipper list with msg.rows.
   importShippers: (msg) => runsService.importShippers(teamOf(msg), msg.rows || []),
 
