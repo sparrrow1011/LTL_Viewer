@@ -136,6 +136,10 @@ export const Config = {
       shipperSource: {
         file: "source_of_truth_crawler.csv",
         paths: [
+          // Confirmed live path (the library root is "Shared Documents" and the
+          // folder chain starts with CST/). The two below are the historical
+          // guesses, kept as fallbacks.
+          "/sites/AmazonFreightOperations/Shared Documents/CST/CST L4+/PROCESS IMPROVEMENT/source_of_truth_crawler.csv",
           "/sites/AmazonFreightOperations/CST/CST L4+/PROCESS IMPROVEMENT/source_of_truth_crawler.csv",
           "/sites/AmazonFreightOperations/Shared Documents/CST L4+/PROCESS IMPROVEMENT/source_of_truth_crawler.csv",
         ],

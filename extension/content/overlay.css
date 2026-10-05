@@ -73,6 +73,10 @@
   background: #fff;
 }
 .ltl-toolbar input[type="search"] { min-width: 220px; }
+/* Window start/end: a date + time pair kept together as one control. */
+.ltl-dt { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.ltl-toolbar .ltl-dt input[type="time"] { width: 6.2em; }
+.ltl-dt-arrow { color: #64748b; font-size: 13px; }
 
 /* Tag-style multi-select with text search (carrier filter). */
 .ltl-ms {
@@ -898,3 +902,24 @@ html[data-theme="dark"] .ltl-calc-out { background: #171c25; }
 html[data-theme="dark"] .ltl-calc-track { background: #1e293b; }
 html[data-theme="dark"] .ltl-calc-formula { background: #14213a; color: #bfdbfe; }
 html[data-theme="dark"] .ltl-calc-breakdown { color: #93c5fd; }
+
+/* ── Dashboard: Lanes tab ──────────────────────────────────────────────────── */
+/* Lane cell is a button styled as a link: click drills the Runs tab into it. */
+.ltl-lane-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ltl-lane-link:hover { text-decoration: underline; }
+/* Non-zero manual-sourcing counts stand out; open runs are flagged amber. */
+.ltl-dash-lanes td.ltl-lane-ms { color: #6d28d9; font-weight: 600; }
+.ltl-dash-lanes td.ltl-lane-open { color: #b45309; font-weight: 700; background: #fef3c7; }
+.ltl-dash-lanes th, .ltl-dash-lanes td { white-space: nowrap; }
+html[data-theme="dark"] .ltl-lane-link { color: #60a5fa; }
+html[data-theme="dark"] .ltl-dash-lanes td.ltl-lane-ms { color: #c4b5fd; }
+html[data-theme="dark"] .ltl-dash-lanes td.ltl-lane-open { color: #fcd34d; background: rgba(245, 158, 11, 0.18); }

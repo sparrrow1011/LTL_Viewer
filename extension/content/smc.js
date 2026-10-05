@@ -21,6 +21,10 @@
 
   // Raw orders from the most recent fetch, kept for diagnostics.
   let __lastRawOrders = [];
+  // Paging outcome of the most recent fetch. `truncated` means SMC had more
+  // records than MAX_PAGES could reach — the caller must not treat the result as
+  // the complete population (the HC calculator would silently under-count).
+  let __lastMeta = { total: 0, fetched: 0, pages: 0, truncated: false };
 
   function dlog(...a) {
     if (window.__ltlDebug && window.__ltlDebug.status && window.__ltlDebug.status.call)
@@ -229,6 +233,7 @@
     const rows = [];
     const size = opts.pageSize || PAGE_SIZE;
     __lastRawOrders = [];
+    __lastMeta = { total: 0, fetched: 0, pages: 0, truncated: false };
     let page = 1;
     while (true) {
       const data = await postSearch(buildPayload(page, w, opts), csrf);
@@ -236,8 +241,16 @@
       __lastRawOrders.push(...orders);
       for (const o of orders) rows.push(...orderToRows(o));
       const total = data.pageResult?.totalRecords ?? orders.length;
+      __lastMeta = { total, fetched: __lastRawOrders.length, pages: page, truncated: false };
       dlog(`page ${page}: ${orders.length} orders (total ${total}), rows so far ${rows.length}`);
-      if (page * size >= total || page >= MAX_PAGES || orders.length === 0) break;
+      if (page * size >= total || orders.length === 0) break;
+      if (page >= MAX_PAGES) {
+        __lastMeta.truncated = true;
+        console.warn(
+          `[LTL smc] stopped at the ${MAX_PAGES}-page cap with ${__lastRawOrders.length} of ${total} orders fetched`
+        );
+        break;
+      }
       page += 1;
     }
     return rows;
@@ -274,7 +287,13 @@
    * @param {object} [opts.shipperMap]  { shipperid: {shipper_group,...} } → tags rows
    */
   async function fetchSourcingRows(win, opts = {}) {
-    const all = await fetchRows(win, { query: opts.query, shipperIds: opts.shipperIds });
+    // pageSize is forwarded so a caller that needs the WHOLE population (the HC
+    // calculator) can raise it and stay inside the MAX_PAGES cap.
+    const all = await fetchRows(win, {
+      query: opts.query,
+      shipperIds: opts.shipperIds,
+      pageSize: opts.pageSize,
+    });
     const filtered = filterSourcing(all, opts.sourcing);
     if (opts.shipperMap) {
       for (const r of filtered) {
@@ -410,7 +429,7 @@
     }
     if (msg.action === "smc:sourcingRows") {
       return fetchSourcingRows(msg.win || {}, msg.opts || {})
-        .then((rows) => ({ bridge: true, ok: true, rows }))
+        .then((rows) => ({ bridge: true, ok: true, rows, meta: { ...__lastMeta } }))
         .catch((err) => {
           // A 200 that isn't JSON / a redirect means the session lapsed.
           if (/HTTP (401|403)|redirected|Unexpected token/i.test(String(err && err.message))) {
@@ -430,5 +449,6 @@
     filterSourcing,
     getRequester,
     rawOrders: () => __lastRawOrders,
+    lastMeta: () => ({ ...__lastMeta }),
   };
 })();

@@ -11,6 +11,9 @@ manual-source + email state tracking, `.eml` generation and a dashboard — back
 by **SharePoint** instead of a network-share JSON store, so it ships to many
 users without a central server.
 
+The CST **HC calculator** is a separate add-on in `HC_Calculator/` — see its own
+README.
+
 Until 0.2.x it was an overlay injected onto the SMC page. It's now a standalone
 page; SMC is reached through a bridge like SharePoint and FMC.
 
@@ -114,6 +117,13 @@ underneath and Open / Retry / Dismiss buttons — completed steps stay green, so
 you can see precisely how far the load got and why it stopped. Nothing is
 rendered until every step has completed.
 
+**The window.** The toolbar's start and end each take a **date and a time**
+(local). Defaults are today 00:00 → tomorrow 00:05 — the historical "tomorrow
+12:05am" convention — so nothing changes until you edit a time. Set both to
+the same day with different times for an intraday slice (e.g. 08:00 → 12:00).
+Changing any of the four fields re-runs the load; Clear restores the defaults.
+The footer and the loader show the window exactly as it was sent.
+
 **LTL (FMC-sourced).** FMC is searched by criteria — the configured shipper
 accounts × placeholder carriers, over the planned-dock window — so every run
 returned is on a placeholder carrier, i.e. needs sourcing by construction.
@@ -176,6 +186,22 @@ records, used so RLB pickups still show as outcomes) are hidden; tick
 
 Set one, the other, or both; the MS / Generated / Sent flags apply on top, and
 Download CSV exports exactly what the filters show.
+
+**Lanes tab** (both teams). One row per directional lane (`XUK8 → XUKT` and
+`XUKT → XUK8` are separate) with runs, manual-sourced, covered (MS / RLB),
+still-open, average cost, last sourced and top shipper; LTL also gets an FM /
+MM split per lane. Headline cards answer the common questions directly — total
+lanes, lanes we had to source, lanes still open, the **most sourced lane** in the
+selected range, and the most sourced lane **this ISO week**. Two charts rank
+lanes by manual sourcing and by open runs. Sort by most sourced / most open /
+most runs / cost / recently sourced, and **click a lane** to drill the Runs tab
+into just that lane. To get "most sourced lane in WK38", set the Activity date
+range to WK38's Sunday–Saturday and read the top row.
+
+**Week numbers** are real ISO week numbers everywhere (`WK39`, with the year
+added only when a series crosses a year boundary, e.g. `WK52 '25`), on a
+Sunday–Saturday week. The CSV export carries `lane`, `mile`, `ms_week` and
+`seen_week` columns so the same analysis can be done in a spreadsheet.
 
 ### Auto-refresh
 
@@ -312,6 +338,7 @@ extension/
     eml.js                 EML builder (verbatim template) -> window.__ltlEml
     sp-bridge.js           Runs on the SharePoint origin; does the actual _api fetches
     overlay.js             Injected UI: table, filters, sort/search, links, badges, MS toggle, EML
+    dashboard.js           Dashboard tab -> window.__ltlDashboard
     overlay.css            Panel styles (scoped under #ltl-overlay)
 ```
 

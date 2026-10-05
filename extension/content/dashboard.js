@@ -41,6 +41,23 @@
     const week = 1 + Math.round((t - firstThu) / (7 * 24 * 3600 * 1000));
     return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
   }
+  // Display form of a weekKey: the real ISO week number, e.g. "2026-W39" →
+  // "WK39". Charts/tables use this so weeks read as the WK numbers the team
+  // plans by, not as sort keys. Year is appended only when the series spans
+  // more than one year, to disambiguate (e.g. WK52 '25 vs WK01 '26).
+  function wkLabel(key, { withYear = false } = {}) {
+    const m = /^(\d{4})-W(\d{2})$/.exec(String(key));
+    if (!m) return String(key);
+    return withYear ? `WK${Number(m[2])} '${m[1].slice(2)}` : `WK${Number(m[2])}`;
+  }
+  // Does a list of weekKeys span more than one calendar year?
+  function spansYears(keys) {
+    return new Set(keys.map((k) => String(k).slice(0, 4))).size > 1;
+  }
+  // The weekKey for "right now" (so the Lanes tab can label "this week").
+  function currentWeekKey() {
+    return weekKey(new Date());
+  }
   function truthy(v) {
     return v === true || ["1", "true", "yes"].includes(String(v).trim().toLowerCase());
   }
@@ -107,6 +124,53 @@
       truthy(r.email_sent) ||
       !!r.covered_at
     );
+  }
+
+  // Lane identity: directional "ORIG → DEST" from the run's nodes. Sourcing is
+  // directional (XUK8 → XUKT is a different job from XUKT → XUK8), so the two
+  // directions are separate lanes. Records with no nodes group under "(no lane)".
+  function laneKey(r) {
+    const o = String(r.orig_node || "").trim();
+    const d = String(r.dest_node || "").trim();
+    if (!o && !d) return "(no lane)";
+    return `${o || "?"} → ${d || "?"}`;
+  }
+
+  /**
+   * Finalise the byLane rollup into a sorted list + headline figures.
+   * `sortBy` ∈ "ms" | "runs" | "open" | "cost" | "lastMs"; desc by default.
+   * Each lane gets `msThisWeek` (manual-sourced in the current ISO week) so
+   * the table can show WKnn activity without a separate filter.
+   */
+  function laneStats(byLane, sortBy = "ms") {
+    const nowWk = currentWeekKey();
+    const lanes = Object.values(byLane).map((L) => ({
+      ...L,
+      covered: L.coveredMs + L.coveredRlb,
+      avgCost: L.costCount ? L.cost / L.costCount : 0,
+      msThisWeek: L.msPerWeek[nowWk] || 0,
+      topShipper: Object.entries(L.shippers).sort((a, b) => b[1] - a[1])[0]?.[0] || "",
+    }));
+    const cmp = {
+      ms: (a, b) => b.ms - a.ms || b.runs - a.runs,
+      runs: (a, b) => b.runs - a.runs || b.ms - a.ms,
+      open: (a, b) => b.open - a.open || b.ms - a.ms,
+      cost: (a, b) => b.cost - a.cost,
+      lastMs: (a, b) => (b.lastMs ? b.lastMs.getTime() : 0) - (a.lastMs ? a.lastMs.getTime() : 0),
+    }[sortBy] || ((a, b) => b.ms - a.ms);
+    lanes.sort(cmp);
+    const real = lanes.filter((l) => l.lane !== "(no lane)");
+    const mostSourced = real.find((l) => l.ms > 0) || null;
+    return {
+      lanes,
+      lanesTotal: real.length,
+      lanesSourced: real.filter((l) => l.ms > 0).length,
+      lanesOpen: real.filter((l) => l.open > 0).length,
+      mostSourced,
+      // "most sourced lane this ISO week" — the WKnn answer.
+      mostSourcedThisWeek: [...real].sort((a, b) => b.msThisWeek - a.msThisWeek).find((l) => l.msThisWeek > 0) || null,
+      nowWk,
+    };
   }
 
   // Planned origin yard check-in (the run's departure), as a Date or null.
@@ -193,6 +257,8 @@
       byFinalCarrier: {}, // carrier -> count (all covered)
       coverHoursMs: [], // MS date → covered_at
       daysOnList: [], // first_seen → covered_at (all covered)
+      // Lane rollup: "ORIG → DEST" -> per-lane tallies (see laneStats()).
+      byLane: {},
       runs: rows,
     };
 
@@ -201,6 +267,40 @@
       const gen = !!r.email_generated_at;
       const sent = truthy(r.email_sent);
       if (isWorked(r)) m.worked += 1;
+
+      // ── lane rollup ──
+      {
+        const key = laneKey(r);
+        const L = (m.byLane[key] = m.byLane[key] || {
+          lane: key, orig: r.orig_node || "", dest: r.dest_node || "",
+          runs: 0, ms: 0, coveredMs: 0, coveredRlb: 0, open: 0,
+          fm: 0, mm: 0, cost: 0, costCount: 0,
+          lastMs: null, lastSeen: null, msPerWeek: {},
+          shippers: {},
+        });
+        L.runs += 1;
+        if (isMs) {
+          L.ms += 1;
+          const d = parseDate(r.manual_source_date);
+          if (d) {
+            if (!L.lastMs || d > L.lastMs) L.lastMs = d;
+            const wk = weekKey(d);
+            L.msPerWeek[wk] = (L.msPerWeek[wk] || 0) + 1;
+          }
+          const c = parseFloat(r.ms_cost);
+          if (!Number.isNaN(c)) { L.cost += c; L.costCount += 1; }
+        }
+        const o = outcomeOf(r);
+        if (o === "open") L.open += 1;
+        else if (o === "covered_ms") L.coveredMs += 1;
+        else L.coveredRlb += 1;
+        if (String(r.mile || "").toUpperCase() === "MM") L.mm += 1;
+        else if (String(r.mile || "").toUpperCase() === "FM") L.fm += 1;
+        const fs0 = parseDate(r.first_seen_at);
+        if (fs0 && (!L.lastSeen || fs0 > L.lastSeen)) L.lastSeen = fs0;
+        const sh = String(r.shippername || "").trim();
+        if (sh) L.shippers[sh] = (L.shippers[sh] || 0) + 1;
+      }
       if (isMs) m.manualSourced += 1;
       if (gen) m.emailsGenerated += 1;
       if (sent) m.emailsSent += 1;
@@ -297,10 +397,14 @@
       svg.appendChild(val);
       const label = String(d.label);
       const l1 = svgEl("text", { x: x + barW / 2, y: height - 18, "text-anchor": "middle", "font-size": 10, fill: "#64748b" });
-      if (label.length > 7) {
-        l1.textContent = label.slice(0, 7);
+      // Two-line labels: lanes break at the arrow ("XUK8 →" / "XUKT"); other
+      // long labels break at 7 chars.
+      const arrow = label.indexOf(" → ");
+      const split = arrow >= 0 ? [label.slice(0, arrow + 2), label.slice(arrow + 3)] : label.length > 7 ? [label.slice(0, 7), label.slice(7)] : null;
+      if (split) {
+        l1.textContent = split[0];
         const l2 = svgEl("text", { x: x + barW / 2, y: height - 6, "text-anchor": "middle", "font-size": 10, fill: "#64748b" });
-        l2.textContent = label.slice(7);
+        l2.textContent = split[1];
         svg.appendChild(l2);
       } else {
         l1.textContent = label;
@@ -346,10 +450,14 @@
   function empty(text) {
     return el("div", { class: "ltl-dash-empty ltl-dash-empty-sm", text });
   }
+  // Chronological series from a {key: value} map. Sorting is on the raw key
+  // (YYYY-Www / YYYY-MM-DD sort correctly); week keys are then shown as real
+  // WK numbers. Day keys and anything else pass through unchanged.
   function sortedSeries(obj, limit) {
-    const keys = Object.keys(obj).sort(); // chronological (YYYY-... sorts right)
+    const keys = Object.keys(obj).sort();
     const use = limit ? keys.slice(-limit) : keys;
-    return use.map((k) => ({ label: k, value: obj[k] }));
+    const withYear = spansYears(use.filter((k) => /^\d{4}-W\d{2}$/.test(k)));
+    return use.map((k) => ({ label: wkLabel(k, { withYear }), value: obj[k], key: k }));
   }
   function countBy(rows, field, blank = "(none)") {
     const out = {};
@@ -382,10 +490,15 @@
     "is_manual_source", "sims", "ms_cost", "manual_source_by", "manual_source_date",
     "email_generated_at", "email_sent", "email_sent_count", "email_sent_confirmed_at", "email_sent_by",
     "outcome", "covered", "final_carrier", "final_carrier_name", "final_status", "covered_at", "outcome_checked_at",
+    // lane dimension (matches the Lanes tab) + FM/MM + real ISO week numbers
+    "lane", "mile", "ms_week", "seen_week",
   ];
   function historyCell(r, c) {
     if (c === "covered") return r.covered_at ? "yes" : "no";
     if (c === "outcome") return OUTCOME_LABEL[outcomeOf(r)];
+    if (c === "lane") return laneKey(r) === "(no lane)" ? "" : laneKey(r);
+    if (c === "ms_week") { const d = parseDate(r.manual_source_date); return d ? wkLabel(weekKey(d), { withYear: true }) : ""; }
+    if (c === "seen_week") { const d = parseDate(r.first_seen_at); return d ? wkLabel(weekKey(d), { withYear: true }) : ""; }
     return r[c];
   }
   function csvCell(v) {
@@ -412,11 +525,129 @@
   // ── tabs ──────────────────────────────────────────────────────────────────
   const TABS = [
     ["overview", "Overview"],
+    ["lanes", "Lanes"],
     ["runs", "Runs"],
     ["emails", "Emails"],
     ["users", "Users"],
     ["live", "Live board"],
   ];
+
+  // ── Lanes tab ──────────────────────────────────────────────────────────────
+  // Answers "which lanes are we sourcing, and how much": one row per
+  // directional lane with sourcing / outcome / FM-MM / cost tallies, a chart of
+  // the most-sourced lanes, and a click-through to that lane's runs. All
+  // figures respect the shared Activity / Planned-checkin / flag filters, so
+  // "most sourced lane in WK38" = set the Activity range to WK38's days.
+  const _laneSort = { by: "ms" };
+  let _laneFilter = ""; // lane key the Runs tab is drilled into ("" = all)
+  let _laneSplitMile = true; // show the FM / MM columns (only meaningful for FMC-sourced teams)
+
+  function renderLanes(root, m, rerender, team) {
+    const fmcSourced = !!(team && team.fmcSearch);
+    const st = laneStats(m.byLane, _laneSort.by);
+    const wkNow = wkLabel(st.nowWk);
+
+    // ── headline cards ──
+    const most = st.mostSourced;
+    const mostWk = st.mostSourcedThisWeek;
+    root.appendChild(
+      el("div", { class: "ltl-cards" }, [
+        card("Lanes", st.lanesTotal, "distinct origin → destination in range"),
+        card("Lanes sourced", st.lanesSourced, `${st.lanesTotal ? Math.round((st.lanesSourced / st.lanesTotal) * 100) : 0}% of lanes needed us`),
+        card("Lanes still open", st.lanesOpen, "have at least one open run"),
+        card("Most sourced lane", most ? most.lane : "–", most ? `${most.ms} manual sourced in range` : "none in range"),
+        card(`Most sourced ${wkNow}`, mostWk ? mostWk.lane : "–", mostWk ? `${mostWk.msThisWeek} manual sourced this week` : `none yet in ${wkNow}`),
+      ])
+    );
+
+    // ── chart: top lanes by manual sourcing ──
+    const topMs = st.lanes.filter((l) => l.ms > 0 && l.lane !== "(no lane)").slice(0, 8).map((l) => ({ label: l.lane, value: l.ms }));
+    const grid = el("div", { class: "ltl-dash-grid" });
+    grid.appendChild(
+      section(
+        "Most sourced lanes",
+        topMs.length ? barChart(topMs, { color: "#7c3aed", slot: 96, maxWidth: 820 }) : empty("No manual sourcing in this range."),
+        "manual-sourced runs per lane, in the selected range"
+      )
+    );
+    const topOpen = st.lanes.filter((l) => l.open > 0 && l.lane !== "(no lane)").sort((a, b) => b.open - a.open).slice(0, 8).map((l) => ({ label: l.lane, value: l.open }));
+    grid.appendChild(
+      section(
+        "Lanes with open runs",
+        topOpen.length ? barChart(topOpen, { color: "#f59e0b", slot: 96, maxWidth: 820 }) : empty("Nothing open in this range."),
+        "runs FMC still shows uncovered, per lane"
+      )
+    );
+    root.appendChild(grid);
+
+    // ── lane table ──
+    const bar = el("div", { class: "ltl-dash-subbar" });
+    const sortSel = el("select", { class: "ltl-dash-flag", title: "Sort lanes" });
+    for (const [v, t] of [["ms", "Sort: Most sourced"], ["open", "Sort: Most open"], ["runs", "Sort: Most runs"], ["cost", "Sort: Highest cost"], ["lastMs", "Sort: Recently sourced"]]) {
+      sortSel.appendChild(el("option", { value: v, text: t }));
+    }
+    sortSel.value = _laneSort.by;
+    sortSel.addEventListener("change", () => { _laneSort.by = sortSel.value; rerender(); });
+    bar.appendChild(sortSel);
+    if (fmcSourced) {
+      const mileWrap = el("label", { class: "ltl-dash-seen", title: "Show first-mile / middle-mile split per lane" });
+      const cb = el("input", { type: "checkbox" });
+      cb.checked = _laneSplitMile;
+      cb.addEventListener("change", () => { _laneSplitMile = cb.checked; rerender(); });
+      mileWrap.appendChild(cb);
+      mileWrap.appendChild(el("span", { text: " FM / MM split" }));
+      bar.appendChild(mileWrap);
+    }
+    if (_laneFilter) {
+      const clear = el("button", { class: "ltl-btn ltl-gray", text: `✕ Clear lane filter (${_laneFilter})` });
+      clear.addEventListener("click", () => { _laneFilter = ""; rerender(); });
+      bar.appendChild(clear);
+    }
+    root.appendChild(bar);
+
+    const showMile = fmcSourced && _laneSplitMile;
+    const headers = ["Lane", "Runs", "Manual sourced", `MS ${wkNow}`, "Covered (MS)", "Covered (RLB)", "Still open"];
+    if (showMile) headers.push("FM", "MM");
+    headers.push("Avg cost", "Last sourced", "Top shipper");
+
+    const table = el("table", { class: "ltl-dash-usertable ltl-dash-lanes" });
+    table.appendChild(el("tr", {}, headers.map((h) => el("th", { text: h }))));
+    const MAX = 200;
+    for (const L of st.lanes.slice(0, MAX)) {
+      // Lane cell is a link that drills the Runs tab into this lane.
+      const laneBtn = el("button", { class: "ltl-lane-link", type: "button", text: L.lane, title: "Show this lane's runs" });
+      laneBtn.addEventListener("click", () => { _laneFilter = L.lane; _tab = "runs"; rerender(); });
+      const openCell = el("td", { text: String(L.open) });
+      if (L.open > 0) openCell.className = "ltl-lane-open";
+      const cells = [
+        el("td", {}, [laneBtn]),
+        el("td", { text: String(L.runs) }),
+        el("td", { text: String(L.ms), class: L.ms > 0 ? "ltl-lane-ms" : "" }),
+        el("td", { text: String(L.msThisWeek), class: L.msThisWeek > 0 ? "ltl-lane-ms" : "" }),
+        el("td", { text: String(L.coveredMs) }),
+        el("td", { text: String(L.coveredRlb) }),
+        openCell,
+      ];
+      if (showMile) {
+        cells.push(el("td", {}, [el("span", { class: "ltl-badge ltl-badge-blue", text: String(L.fm) })]));
+        cells.push(el("td", {}, [el("span", { class: "ltl-badge ltl-badge-purple", text: String(L.mm) })]));
+      }
+      cells.push(
+        el("td", { text: L.costCount ? `€${L.avgCost.toFixed(0)}` : "" }),
+        el("td", { text: L.lastMs ? fmtLocal(L.lastMs.toISOString()) : "" }),
+        el("td", { text: L.topShipper })
+      );
+      table.appendChild(el("tr", {}, cells));
+    }
+    const title = st.lanes.length > MAX ? `Lanes (showing ${MAX} of ${st.lanes.length})` : `Lanes (${st.lanes.length})`;
+    root.appendChild(
+      section(
+        title,
+        st.lanes.length ? table : empty("No lanes in this range — widen the dates or tick ‘Include seen-only’."),
+        "Click a lane to see its runs. Weeks are ISO week numbers (Sunday–Saturday)."
+      )
+    );
+  }
 
   function renderOverview(root, m) {
     root.appendChild(
@@ -472,11 +703,18 @@
     };
     bar.appendChild(sel("outcome", [["", "Outcome: All"], ["open", "Open"], ["covered_ms", "Covered (MS)"], ["covered_rlb", "Covered (RLB)"]]));
     bar.appendChild(sel("worked", [["", "Runs: All"], ["worked", "Worked by us"], ["seen", "Seen only"]]));
+    // Lane drill-down from the Lanes tab: a removable chip showing the lane.
+    if (_laneFilter) {
+      const chip = el("button", { class: "ltl-btn ltl-gray", type: "button", text: `Lane: ${_laneFilter}  ✕`, title: "Clear lane filter" });
+      chip.addEventListener("click", () => { _laneFilter = ""; rerender(); });
+      bar.appendChild(chip);
+    }
     root.appendChild(bar);
 
     let rows = m.runs.filter((r) => !_runsFilter.outcome || outcomeOf(r) === _runsFilter.outcome);
     if (_runsFilter.worked === "worked") rows = rows.filter(isWorked);
     if (_runsFilter.worked === "seen") rows = rows.filter((r) => !isWorked(r));
+    if (_laneFilter) rows = rows.filter((r) => laneKey(r) === _laneFilter);
     // Open first, then most recent activity.
     rows.sort((a, b) => {
       const ao = a.covered_at ? 1 : 0;
@@ -764,6 +1002,7 @@
           text: "No worked or covered runs match — widen the Activity / Planned checkin dates, click ‘All’ / ‘Any’, or tick ‘Include seen-only’.",
         }));
       } else if (_tab === "overview") renderOverview(body, m);
+      else if (_tab === "lanes") renderLanes(body, m, doRender, team);
       else if (_tab === "runs") renderRuns(body, m, doRender, onToggleMs);
       else if (_tab === "emails") renderEmails(body, m);
       else if (_tab === "users") renderUsers(body, m);

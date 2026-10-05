@@ -732,17 +732,46 @@
     return dt.toISOString().replace(/\.\d+Z$/, ".000Z");
   }
 
-  // The SMC fetch window from the date inputs:
-  //  - start = selected Start day at 00:00 local
-  //  - end   = selected End day at 00:05 local  (per requirement: "tomorrow 12:05am")
+  // Default times of day for the window — the historical convention
+  // ("today 00:00 → tomorrow 12:05am"). The time inputs start at these values
+  // so behaviour is unchanged until the user edits them.
+  const DEFAULT_START_TIME = "00:00";
+  const DEFAULT_END_TIME = "00:05";
+
+  // Parse an <input type="time"> value ("HH:MM" or "HH:MM:SS") → {h, m}.
+  // Falls back to `fallback` ("HH:MM") when empty/invalid.
+  function parseTime(v, fallback) {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(v || "").trim()) || /^(\d{1,2}):(\d{2})/.exec(fallback);
+    const h = Math.min(23, Math.max(0, Number(m[1])));
+    const mm = Math.min(59, Math.max(0, Number(m[2])));
+    return { h, m: mm };
+  }
+
+  // The fetch window (drives the FMC criteria search / SMC order search) from
+  // the date + time inputs, interpreted in LOCAL time:
+  //  - start = Start date @ Start time   (default 00:00)
+  //  - end   = End date   @ End time     (default 00:05, i.e. "tomorrow 12:05am")
   function dateWindow() {
     const g = (id) => root.querySelector(`#${id}`)?.value?.trim() || "";
     const start = g("ltl-start");
     const end = g("ltl-end");
+    const st = parseTime(g("ltl-start-time"), DEFAULT_START_TIME);
+    const et = parseTime(g("ltl-end-time"), DEFAULT_END_TIME);
     return {
-      start: start ? localDayToUtcIso(start, 0, 0) : "",
-      end: end ? localDayToUtcIso(end, 0, 5) : "",
+      start: start ? localDayToUtcIso(start, st.h, st.m) : "",
+      end: end ? localDayToUtcIso(end, et.h, et.m) : "",
     };
+  }
+
+  // Human-readable window for the footer / loader: "24/09 08:00 → 25/09 00:05".
+  function windowLabel() {
+    const g = (id) => root.querySelector(`#${id}`)?.value?.trim() || "";
+    const s = g("ltl-start");
+    const e = g("ltl-end");
+    if (!s && !e) return "";
+    const st = g("ltl-start-time") || DEFAULT_START_TIME;
+    const et = g("ltl-end-time") || DEFAULT_END_TIME;
+    return `${s || "…"} ${st} → ${e || "…"} ${et}`;
   }
 
   // Load (and cache per team) the shipper source-of-truth map from SharePoint.
@@ -984,8 +1013,7 @@
 
       // The pipeline this team's load will walk through, shown up front.
       const fmcSourced = !!teamCfg.fmcSearch;
-      const s = root.querySelector("#ltl-start")?.value || "";
-      const e0 = root.querySelector("#ltl-end")?.value || "";
+      const winText = windowLabel();
       Loader.begin(
         fmcSourced ? "Loading runs needing sourcing" : "Loading loads needing sourcing",
         fmcSourced
@@ -1003,7 +1031,7 @@
               { key: "filter", label: "Carrier gate", hint: "keep only placeholder carriers" },
               { key: "records", label: "Merge SharePoint records", hint: "manual-source + email state" },
             ],
-        s || e0 ? `Window ${s || "…"} 00:00 → ${e0 || "…"} 00:05` : ""
+        winText ? `Window ${winText}` : ""
       );
 
       // ── Remote control (BEFORE anything else) ─────────────────────────────
@@ -1118,8 +1146,7 @@
       populateFilters();
       applySearchAndRender();
 
-      root.querySelector("#ltl-window").textContent =
-        s || e0 ? `Window: ${s || "…"} 00:00 → ${e0 || "…"} 00:05` : "";
+      root.querySelector("#ltl-window").textContent = winText ? `Window: ${winText}` : "";
       root.querySelector("#ltl-updated").textContent =
         `Updated: ${new Date().toLocaleString()} — ${teamCfg.label}: ${state.rows.length} need sourcing`;
 
@@ -2317,8 +2344,15 @@
       </div>
       <div id="ltl-toolbar" class="ltl-toolbar">
         <input type="search" id="ltl-search" placeholder="Search (comma = VRID/order exact)" />
-        <input type="date" id="ltl-start" title="Start date" />
-        <input type="date" id="ltl-end" title="End date" />
+        <span class="ltl-dt" title="Window start (local time)">
+          <input type="date" id="ltl-start" title="Start date" />
+          <input type="time" id="ltl-start-time" title="Start time" step="300" />
+        </span>
+        <span class="ltl-dt-arrow" aria-hidden="true">→</span>
+        <span class="ltl-dt" title="Window end (local time)">
+          <input type="date" id="ltl-end" title="End date" />
+          <input type="time" id="ltl-end-time" title="End time" step="300" />
+        </span>
         <select id="ltl-country"><option value="">All Countries</option></select>
         <select id="ltl-status"><option value="">All Statuses</option></select>
         <select id="ltl-shipper"><option value="">All Shippers</option></select>
@@ -2436,6 +2470,8 @@
     // Default window: today 00:00 → tomorrow 00:05 (narrow = fast load).
     root.querySelector("#ltl-start").value = todayIso();
     root.querySelector("#ltl-end").value = tomorrowIso();
+    root.querySelector("#ltl-start-time").value = DEFAULT_START_TIME;
+    root.querySelector("#ltl-end-time").value = DEFAULT_END_TIME;
 
     // Mount the tag-style carrier multi-select. Filtering is local, so re-render
     // on change (no SMC re-fetch).
@@ -2471,15 +2507,18 @@
       // Reset the carrier multi-select + status back to the team defaults.
       if (carrierMs) carrierMs.setSelected(carrierDefaults());
       statusInit = false; // populateFilters() re-applies the team status default
-      // Reset dates back to the default window (today → tomorrow), not empty.
+      // Reset the window back to the default (today 00:00 → tomorrow 00:05), not empty.
       root.querySelector("#ltl-start").value = todayIso();
       root.querySelector("#ltl-end").value = tomorrowIso();
+      root.querySelector("#ltl-start-time").value = DEFAULT_START_TIME;
+      root.querySelector("#ltl-end-time").value = DEFAULT_END_TIME;
       state.search = "";
       fetchData();
     });
-    // Changing either date re-fetches from SMC with the new window.
-    root.querySelector("#ltl-start").addEventListener("change", fetchData);
-    root.querySelector("#ltl-end").addEventListener("change", fetchData);
+    // Changing any part of the window (date or time) re-fetches with it.
+    ["ltl-start", "ltl-end", "ltl-start-time", "ltl-end-time"].forEach((id) => {
+      root.querySelector(`#${id}`).addEventListener("change", fetchData);
+    });
     // (Carrier multi-select re-renders locally via its own onChange callback.)
     // Status flag filters + shipper group re-render locally on change.
     ["ltl-f-ms", "ltl-f-gen", "ltl-f-sent", "ltl-group"].forEach((id) => {

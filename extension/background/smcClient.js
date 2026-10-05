@@ -24,7 +24,9 @@ const bridge = makeBridge({
  */
 export async function fetchSourcingRows(win, opts = {}) {
   const resp = await bridge.call({ action: "smc:sourcingRows", win, opts });
-  return { rows: resp.rows || [] };
+  // `meta` reports SMC's paging outcome ({total, fetched, pages, truncated});
+  // callers that need the complete population must check `truncated`.
+  return { rows: resp.rows || [], meta: resp.meta || null };
 }
 
 /**
