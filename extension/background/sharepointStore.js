@@ -134,10 +134,26 @@ async function ensureList(def) {
   if (!exists) {
     log.info("ensureList", `creating list '${def.title}'`);
     // 100 = GenericList template.
-    await spWrite("/web/lists", {
-      method: "POST",
-      body: { BaseTemplate: 100, Title: def.title, AllowContentTypes: false },
-    });
+    try {
+      await spWrite("/web/lists", {
+        method: "POST",
+        body: { BaseTemplate: 100, Title: def.title, AllowContentTypes: false },
+      });
+    } catch (e) {
+      // Creating a list needs Manage Lists (Member/Design), not just Contribute.
+      // Say that plainly instead of letting it read as a generic failure — the
+      // first person to use a new list is the one who hits this.
+      if (e instanceof SpError && e.denied) {
+        throw new SpError(
+          `The "${def.title}" list doesn't exist yet and you don't have permission to create it. ` +
+            `Ask a site owner to create it, or to give you edit access — then retry.`,
+          e.status,
+          e.body,
+          { denied: true }
+        );
+      }
+      throw e;
+    }
   } else {
     log.debug("ensureList", `list '${def.title}' exists`);
   }

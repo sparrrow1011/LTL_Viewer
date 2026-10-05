@@ -135,11 +135,23 @@
   // Session pre-flight: returns true if all required services are authenticated.
   // If any are expired, shows the persistent banner (with Retry) and returns
   // false so the caller ABORTS the action before doing anything.
-  async function ensureSessions(services, onRetry) {
+  // `write: true` checks SharePoint can actually SAVE (contextinfo POST) rather
+  // than just read. Use it for anything that writes, so a read-only account or
+  // a half-expired session is caught up front instead of mid-action.
+  async function ensureSessions(services, onRetry, { write = false } = {}) {
     try {
-      const { expired } = await msg("checkSessions", { services });
+      const { expired, reasons = {} } = await msg("checkSessions", { services, write });
       if (expired && expired.length) {
-        showSessionBanner(expired, onRetry);
+        // "Denied" is not an expiry: tell the user it's permissions, and don't
+        // send them off to sign in again for no reason.
+        const denied = expired.filter((s) => reasons[s] && reasons[s].denied);
+        if (denied.length) {
+          const detail = denied.map((s) => `${s}: ${reasons[s].message}`).join(" · ");
+          toast(`No permission to save: ${detail}`, "error");
+          console.error("[LTL overlay] write refused:", reasons);
+        } else {
+          showSessionBanner(expired, onRetry);
+        }
         return false;
       }
       dismissSessionBanner();
@@ -1524,7 +1536,7 @@
 
   async function onEmailToggle(e, row) {
     const newValue = e.target.checked;
-    if (!(await ensureSessions(["SharePoint"], () => onEmailToggle(e, row)))) {
+    if (!(await ensureSessions(["SharePoint"], () => onEmailToggle(e, row), { write: true }))) {
       e.target.checked = !newValue;
       return;
     }
@@ -1684,7 +1696,7 @@
       return;
     }
     // Don't change anything if SharePoint can't save it.
-    if (!(await ensureSessions(["SharePoint"], () => onManualSourceToggle(e, row)))) {
+    if (!(await ensureSessions(["SharePoint"], () => onManualSourceToggle(e, row), { write: true }))) {
       e.target.checked = !newValue;
       return;
     }
@@ -1750,7 +1762,7 @@
     // (recording it). If either is expired, do nothing — no EML is generated —
     // and prompt to re-auth. (Per requirement: don't generate if it can't be
     // recorded.)
-    if (!(await ensureSessions(["FMC", "SharePoint"], onSendEml))) return;
+    if (!(await ensureSessions(["FMC", "SharePoint"], onSendEml, { write: true }))) return;
 
     // 1. Resolve addresses + build/download the EML (recipients/subject per team).
     try {
@@ -1824,7 +1836,7 @@
       return;
     }
     if (!confirm(`Mark ${keys.length} loads as sent?`)) return;
-    if (!(await ensureSessions(["SharePoint"], onMarkSent))) return;
+    if (!(await ensureSessions(["SharePoint"], onMarkSent, { write: true }))) return;
     try {
       const res = await msg("markEmailsSent", { keys, user: await ensureUser() });
       if (res.status !== "ok") throw new Error(res.message || "failed");
@@ -2095,7 +2107,7 @@
         )
       )
         return;
-      if (!(await ensureSessions(["SharePoint"], onImportShippers))) return;
+      if (!(await ensureSessions(["SharePoint"], onImportShippers, { write: true }))) return;
       try {
         setBusy(true);
         const res = await msg("importShippers", { rows: valid });
@@ -2106,7 +2118,14 @@
         await ensureShippers(true);
         updateShippersButton();
       } catch (e) {
-        toast(`Import failed: ${e.message}`, "error");
+        // Include the real status + SharePoint's own text: "session expired"
+        // alone sent people to re-sign-in for what was often a permissions
+        // problem on the list.
+        const detail = [e.status ? `HTTP ${e.status}` : "", e.body ? String(e.body).replace(/\s+/g, " ").slice(0, 200) : ""]
+          .filter(Boolean)
+          .join(" — ");
+        toast(`Import failed: ${e.message}${detail ? ` (${detail})` : ""}`, "error");
+        console.error("[LTL overlay] shipper import failed:", e);
         return;
       } finally {
         setBusy(false);

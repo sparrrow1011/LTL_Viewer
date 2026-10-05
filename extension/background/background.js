@@ -81,7 +81,7 @@ function teamOf(msg) {
  * prompt for re-auth BEFORE doing anything.
  * @param {string[]} services  e.g. ["SharePoint", "FMC"]
  */
-async function checkSessions(services) {
+async function checkSessions(services, { write = false } = {}) {
   const expired = [];
   // Per-service failure detail so the overlay's blocker can show the REAL
   // reason (HTTP status / redirect / bridge unreachable) instead of a generic
@@ -89,7 +89,10 @@ async function checkSessions(services) {
   const reasons = {};
   const jobs = services.map(async (svc) => {
     try {
-      if (svc === "SharePoint") await spClient.ping();
+      // `write` actions check write authorization (contextinfo POST), not just
+      // a read — a cached GET or read-only access would otherwise pass here and
+      // fail later, mid-action.
+      if (svc === "SharePoint") await (write ? spClient.pingWrite() : spClient.ping());
       else if (svc === "FMC") await fmcClient.ping();
       else if (svc === "SMC") await smcClient.ping();
     } catch (e) {
@@ -103,6 +106,9 @@ async function checkSessions(services) {
         // false = the check failed for some OTHER reason (bridge not reachable,
         // tab didn't load, network) — the session may well be fine.
         expired: !!(e && e.expired),
+        // Signed in but refused — re-signing-in won't help, so the UI must say
+        // "no permission" rather than "session expired".
+        denied: !!(e && e.denied),
       };
     }
   });
@@ -134,7 +140,7 @@ const HANDLERS = {
 
   // Session pre-flight: check whether the given services are authenticated.
   // Returns { expired: string[] } listing any that need re-auth.
-  checkSessions: (msg) => checkSessions(msg.services || []),
+  checkSessions: (msg) => checkSessions(msg.services || [], { write: !!msg.write }),
 
   // ── SMC (via the SMC-tab bridge) ──
   // Loads still needing sourcing for the window: { rows }.

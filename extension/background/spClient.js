@@ -17,19 +17,55 @@ const SP_TAB_URL = `${Config.SP_ORIGIN}${Config.SP_SITE_PATH}`;
 const SP_MATCH = `${Config.SP_ORIGIN}${Config.SP_SITE_PATH}/*`;
 
 export class SpError extends Error {
-  constructor(message, status = 0, body = "") {
+  /**
+   * @param {string} message
+   * @param {number} status   HTTP status (0 = never reached SharePoint)
+   * @param {string} body     SharePoint's own response body, kept verbatim
+   * @param {{expired?:boolean, denied?:boolean}} [flags] from the bridge, which
+   *        is the only place that sees the real response
+   *
+   * 401 and 403 are DIFFERENT problems and used to be reported identically as
+   * "session expired", which sent people to re-sign-in for what was actually a
+   * permissions problem. 401 (or a redirect to the sign-in page) = not signed
+   * in. 403 after a digest refresh = signed in, but not allowed to do this.
+   */
+  constructor(message, status = 0, body = "", flags = {}) {
     super(message);
     this.name = "SpError";
     this.status = status;
     this.body = body;
-    // 401 (and some 403s) mean the SharePoint session lapsed — surface a clear,
-    // actionable message rather than a raw HTTP code.
-    this.expired = status === 401 || status === 403;
+    this.expired = flags.expired != null ? !!flags.expired : status === 401;
+    this.denied = flags.denied != null ? !!flags.denied : status === 403;
     if (this.expired) {
+      this.message = "SharePoint session expired — open the SharePoint tab, sign in, then retry.";
+    } else if (this.denied) {
       this.message =
-        "SharePoint session expired — open the SharePoint tab, sign in, then retry.";
+        `SharePoint refused this (HTTP 403): you're signed in but don't have permission. ` +
+        `${message}. Ask a site owner for edit access to ${Config.SP_SITE_PATH}.`;
     }
+    // Any other failure keeps the caller's message and the response body, so
+    // the real cause is visible instead of being overwritten.
   }
+}
+
+/** One-line summary for a toast: real status + a snippet of SharePoint's reply. */
+export function spErrorDetail(err) {
+  if (!err) return "";
+  const bits = [];
+  if (err.status) bits.push(`HTTP ${err.status}`);
+  const body = String(err.body || "").trim();
+  if (body) {
+    // SharePoint errors are JSON with the useful text nested; fall back to raw.
+    let text = body;
+    try {
+      const j = JSON.parse(body);
+      text = j?.error?.message?.value || j?.["odata.error"]?.message?.value || body;
+    } catch {
+      /* not JSON */
+    }
+    bits.push(String(text).replace(/\s+/g, " ").slice(0, 200));
+  }
+  return bits.join(" — ");
 }
 
 // ── locate (or open) a SharePoint tab that has the bridge ─────────────────────
@@ -82,7 +118,7 @@ async function ensureSpTab() {
 }
 
 /** Send one REST op to the bridge; returns the bridge's { ok, status, data, body }. */
-async function bridgeRequest({ method = "GET", path, body = null, etag = "*", raw = false }) {
+async function bridgeRequest({ method = "GET", path, body = null, etag = "*", raw = false, probe = null }) {
   const tab = await ensureSpTab();
   if (!tab) {
     throw new SpError(
@@ -91,7 +127,7 @@ async function bridgeRequest({ method = "GET", path, body = null, etag = "*", ra
       ""
     );
   }
-  const message = { action: "sp:req", method, path, body, etag, raw };
+  const message = { action: "sp:req", method, path, body, etag, raw, probe };
   let resp;
   try {
     resp = await browser.tabs.sendMessage(tab.id, message);
@@ -143,7 +179,7 @@ export async function spGet(path, { paged = false } = {}) {
     log.debug("GET", path);
     const r = await bridgeRequest({ method: "GET", path });
     log.debug("GET", `→ HTTP ${r.status}`, path);
-    if (!r.ok) throw new SpError(`GET ${path} → HTTP ${r.status}`, r.status, r.body);
+    if (!r.ok) throw new SpError(`GET ${path} → HTTP ${r.status}`, r.status, r.body, r);
     return r.data;
   }
 
@@ -155,7 +191,7 @@ export async function spGet(path, { paged = false } = {}) {
     log.debug("GET", `page ${pageNo}`, next);
     const r = await bridgeRequest({ method: "GET", path: next });
     log.debug("GET", `page ${pageNo} → HTTP ${r.status}`);
-    if (!r.ok) throw new SpError(`GET ${next} → HTTP ${r.status}`, r.status, r.body);
+    if (!r.ok) throw new SpError(`GET ${next} → HTTP ${r.status}`, r.status, r.body, r);
     const data = r.data || {};
     if (Array.isArray(data.value)) all.push(...data.value);
     next = data["@odata.nextLink"] || data["odata.nextLink"] || null;
@@ -169,7 +205,7 @@ export async function spWrite(path, { method = "POST", body = null, etag = "*" }
   log.debug("WRITE", `${method} ${path}`, body ? { bodyKeys: Object.keys(body) } : "");
   const r = await bridgeRequest({ method, path, body, etag });
   log.debug("WRITE", `${method} ${path} → HTTP ${r.status}`);
-  if (!r.ok) throw new SpError(`${method} ${path} → HTTP ${r.status}`, r.status, r.body);
+  if (!r.ok) throw new SpError(`${method} ${path} → HTTP ${r.status}`, r.status, r.body, r);
   return r.data;
 }
 
@@ -193,7 +229,7 @@ export async function spGetFileText(serverRelativeUrl) {
   log.debug("FILE", `api → HTTP ${r.status}`, rel);
   if (r.ok) return r.data;
   if (r.status === 401 || r.status === 403 || r.expired) {
-    throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body);
+    throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body, r);
   }
   // 2. Direct download URL — works for files on ANY site of the tenant, since
   //    the bridge fetches with the SharePoint session. `download=1` forces the
@@ -201,7 +237,7 @@ export async function spGetFileText(serverRelativeUrl) {
   const direct = `${Config.SP_ORIGIN}${rel.split("/").map(encodeURIComponent).join("/")}?download=1`;
   r = await bridgeRequest({ method: "GET", path: direct, raw: true });
   log.debug("FILE", `direct → HTTP ${r.status}`, rel);
-  if (!r.ok) throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body);
+  if (!r.ok) throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body, r);
   return r.data;
 }
 
@@ -246,6 +282,20 @@ export async function spSearchFilePaths(filename) {
  */
 export async function ping() {
   const r = await bridgeRequest({ method: "GET", path: "/web?$select=Title" });
-  if (!r.ok) throw new SpError(`SharePoint ping → HTTP ${r.status}`, r.status, r.body);
+  if (!r.ok) throw new SpError(`SharePoint ping → HTTP ${r.status}`, r.status, r.body, r);
+  return true;
+}
+
+/**
+ * Write pre-flight: asks the bridge for a fresh form digest (`_api/contextinfo`,
+ * a POST). Proves the session can actually WRITE, which ping() does not —
+ * cached GETs and read-only permissions both sail through it. Used before any
+ * action that saves, so the blocker appears before the user does the work.
+ */
+export async function pingWrite() {
+  const r = await bridgeRequest({ method: "POST", path: "", probe: "write" });
+  if (!r.ok) {
+    throw new SpError(`SharePoint write check → HTTP ${r.status}`, r.status, r.body, r);
+  }
   return true;
 }

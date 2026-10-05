@@ -49,15 +49,25 @@
     const ctype = (res.headers.get("content-type") || "").toLowerCase();
     const isJson = ctype.includes("json");
     if (res.redirected && !onOrigin) {
-      const err = new Error(`SharePoint session expired — redirected to ${res.url}`);
+      const err = new Error(`redirected to the sign-in page (${res.url})`);
       err.status = 401;
       err.expired = true;
       throw err;
     }
-    if (res.status === 401 || res.status === 403) {
-      const err = new Error(`SharePoint session expired — HTTP ${res.status}`);
-      err.status = res.status;
+    if (res.status === 401) {
+      const err = new Error("not signed in (HTTP 401)");
+      err.status = 401;
       err.expired = true;
+      throw err;
+    }
+    // 403 is NOT a session problem: the request was authenticated and refused.
+    // (doWrite already retried once with a fresh digest, so a 403 reaching here
+    // is a real permissions refusal, not a stale token.)
+    if (res.status === 403) {
+      const err = new Error("access denied (HTTP 403)");
+      err.status = 403;
+      err.denied = true;
+      err.expired = false;
       throw err;
     }
     // 204 (no content) is a legitimate write reply with no body/content-type.
@@ -190,7 +200,23 @@
 
   browser.runtime.onMessage.addListener((msg) => {
     if (!msg || msg.action !== "sp:req") return; // not for us
-    const { method = "GET", path, body = null, etag = "*", raw = false } = msg;
+    const { method = "GET", path, body = null, etag = "*", raw = false, probe = null } = msg;
+    // Write pre-flight: prove write authorization without writing anything.
+    // A GET proves nothing (it can be served from cache, and read-only users
+    // pass it), so the import used to fail AFTER the user picked a file.
+    if (probe === "write") {
+      return getDigest(true)
+        .then(() => ({ bridge: true, ok: true, status: 200, data: null }))
+        .catch((err) => ({
+          bridge: true,
+          ok: false,
+          status: err.status || 0,
+          expired: !!(err && err.expired),
+          denied: !!(err && err.denied),
+          body: err.body || String(err && err.message ? err.message : err),
+          data: null,
+        }));
+    }
     const run =
       method === "GET"
         ? raw
@@ -204,6 +230,7 @@
         ok: false,
         status: err.status || 0,
         expired: !!(err && err.expired),
+        denied: !!(err && err.denied),
         body: err.body || String(err && err.message ? err.message : err),
         data: null,
       }));
