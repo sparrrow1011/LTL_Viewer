@@ -491,7 +491,7 @@
     "email_generated_at", "email_sent", "email_sent_count", "email_sent_confirmed_at", "email_sent_by",
     "outcome", "covered", "final_carrier", "final_carrier_name", "final_status", "covered_at", "outcome_checked_at",
     // lane dimension (matches the Lanes tab) + FM/MM + real ISO week numbers
-    "lane", "mile", "ms_week", "seen_week",
+    "lane", "mile", "cr_id", "ms_week", "seen_week",
   ];
   function historyCell(r, c) {
     if (c === "covered") return r.covered_at ? "yes" : "no";

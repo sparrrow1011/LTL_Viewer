@@ -232,6 +232,10 @@
         shipper_account: accounts[0] || rec.clientContract || null,
         shipper_accounts: accounts,
         tender_status: rec.tenderStatus ?? null,
+        // Carrier-request ID. Free text typed on the request (e.g. "FM IB
+        // UNTOUCHED T2T", "DUMMY AH 2116560968"), null on some runs — useful
+        // context for a sourcer, not a stable key.
+        cr_id: rec.crId ?? null,
         // FMC's uncovered-load disruption: "ACTIVE" | "RESOLVED" | null.
         fmc_uncovered: uncoveredFlag(rec),
         // origin/dest stop refs for the lazy address lookup at EML time.

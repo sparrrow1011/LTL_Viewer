@@ -32,7 +32,7 @@
     if (teamCfg && teamCfg.fmcSearch) {
       // FMC-sourced (LTL): lead with the FM/MM tag and show the shipper
       // account, which is what distinguishes the middle-mile runs.
-      return ["mile", "shipper_account", ...BASE_COLUMNS];
+      return ["mile", "shipper_account", "cr_id", ...BASE_COLUMNS];
     }
     return BASE_COLUMNS;
   }

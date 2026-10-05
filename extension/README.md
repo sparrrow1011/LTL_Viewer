@@ -133,8 +133,11 @@ in SMC purely to **enrich and tag**: a VRID that exists in SMC is a shipper
 order → **FM** (first mile); one SMC has never seen → **MM** (middle mile).
 SMC adds shipper/order context to FM rows but never gates the list, and an SMC
 failure at this stage degrades to a toast rather than blocking the FMC list.
-The table leads with the FM/MM badge and the shipper account; both are stored
-on the SharePoint record so the Dashboard can split by them.
+The table leads with the FM/MM badge, the shipper account and the **CR ID**
+(FMC's carrier-request id — free text such as `FM IB UNTOUCHED T2T` or
+`DUMMY AH 2116560968`, blank on some runs; shown for context, not used as a
+key). All three are stored on the SharePoint record and included in the
+Dashboard CSV, so the Dashboard can split by them.
 
 **CST (SMC-sourced).** SMC is fetched, then **while still loading** every VRID
 is validated on FMC (execution status / carrier / tour / yard times overwrite

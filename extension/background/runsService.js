@@ -41,7 +41,7 @@ export const SNAPSHOT_FIELDS = [
   "dest_country", "orig_planned_yard_checkin_time", "dest_planned_yard_checkin_time",
   "vehicle_carrier", "tour_id", "freight_type",
   // FMC-sourced context: FM/MM tag + the shipper account that identifies MM runs.
-  "mile", "shipper_account",
+  "mile", "shipper_account", "cr_id",
 ];
 
 function applySnapshot(rec, snap) {
