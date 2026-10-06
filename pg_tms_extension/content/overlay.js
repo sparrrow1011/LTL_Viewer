@@ -159,13 +159,13 @@
       },
     },
     { key: "appointment", label: "Appointment (ISA)" },
-    // Pallets = Shipment Laden Length (M) rounded (what goes into SMC);
-    // Theoretical Pallets stays in the tooltip / CSV.
+    // Pallets = Load Laden Length (M) rounded (what goes into SMC);
+    // Shipment Laden Length + Theoretical Pallets stay in the tooltip / CSV.
     {
       key: "smcPallets",
       label: "Pallets",
       render: (r) =>
-        `<span title="Laden length ${esc(r.ladenLength || "—")} · Theoretical pallets ${esc(r.pallets || "—")}">${esc(
+        `<span title="Load laden length ${esc(r.loadLadenLength || "—")} · Shipment laden length ${esc(r.ladenLength || "—")} · Theoretical pallets ${esc(r.pallets || "—")}">${esc(
           r.smcPallets !== "" && r.smcPallets != null ? r.smcPallets : r.pallets
         )}</span>`,
     },
@@ -203,7 +203,8 @@
     ["smcPallets", "Pallets (SMC)"],
     ["weight", "Weight (kg)"],
     ["pallets", "Theoretical Pallets"],
-    ["ladenLength", "Laden Length (M)"],
+    ["loadLadenLength", "Load Laden Length (M)"],
+    ["ladenLength", "Shipment Laden Length (M)"],
     ["originCity", "Origin City"],
     ["destAddress", "Destination"],
     ["idc", "IDC"],

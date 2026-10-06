@@ -243,6 +243,8 @@
     const status = cell("status");
     const destAddress = cell("destAddress");
     const ladenLength = cell("ladenLength");
+    const loadLadenLength = cell("loadLadenLength");
+    const palNum = (s) => (s ? Math.round(parseFloat(String(s).replace(",", ".")) || 0) || "" : "");
 
     return {
       rowKey: rowKeyOf(tr),
@@ -256,9 +258,9 @@
       originName: cell("originName"), // Load Origin Location Name (when listed)
       originCity: cell("originCity"),
       pallets: cell("pallets"), // Theoretical Pallets (display)
-      ladenLength, // Shipment Laden Length (M) — used as the SMC pallet count
-      smcPallets: ladenLength ? Math.round(parseFloat(ladenLength.replace(",", ".")) || 0) || "" : "",
-      loadLadenLength: cell("loadLadenLength"),
+      ladenLength, // Shipment Laden Length (M) — kept for reference
+      loadLadenLength, // Load Laden Length (M) — used as the SMC pallet count
+      smcPallets: palNum(loadLadenLength),
       weightRaw: cell("weight"), // Shipment Weight as printed ("" if not listed)
       weight: parseWeight(cell("weight")), // number, 1 dp
       commodity: cell("commodity"),
