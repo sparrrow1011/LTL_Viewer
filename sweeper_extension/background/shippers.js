@@ -11,7 +11,16 @@
  */
 import { Config } from "../config.js";
 import { makeBridge } from "./bridgeClient.js";
+import { readSheets } from "./xlsx.js";
 import { log } from "./debug.js";
+
+/** base64 (how the bridge ships bytes over messaging) → Uint8Array. */
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 const bridge = makeBridge({
   name: "sharepoint",
@@ -94,7 +103,77 @@ function toServerRelative(v) {
   return s.startsWith("/") ? s : `/${s}`;
 }
 
+/**
+ * Read the shipper IDs straight out of the Source of Truth workbook.
+ *
+ * Preferred over the CSV: that CSV only exists when someone runs CST_viewer's
+ * scripts/update_shippers.py on their laptop, and a missed run means this sweep
+ * silently scopes to a stale shipper list. Column is positional (B by default),
+ * matching update_shippers.py's usecols. Returns null if nothing resolved.
+ */
+async function readWorkbook() {
+  const wb = Config.SHIPPER_WORKBOOK;
+  if (!wb || !(wb.paths || []).length) return null;
+  const col = Number.isInteger(wb.idColumn) ? wb.idColumn : 1; // 0-based: B
+  const attempts = [];
+
+  for (const path of wb.paths) {
+    let resp;
+    try {
+      resp = await bridge.call({ action: "sp:filebytes", serverRelativeUrl: path });
+    } catch (e) {
+      if (e && e.expired) throw e;
+      attempts.push(`${path} → ${e.message}`);
+      continue;
+    }
+    if (!resp || resp.encoding !== "base64" || typeof resp.data !== "string") {
+      // A SharePoint tab opened before this add-on updated runs the old bridge,
+      // which has no bytes mode. Say so instead of failing cryptically.
+      attempts.push(`${path} → bridge returned no base64 (reload the SharePoint tab)`);
+      continue;
+    }
+    try {
+      const bytes = base64ToBytes(resp.data);
+      const sheetName = wb.sheet || "Shippers";
+      const { sheets } = await readSheets(bytes, [sheetName]);
+      const grid = sheets[sheetName] || Object.values(sheets)[0];
+      if (!grid) {
+        attempts.push(`${path} → no sheet "${sheetName}"`);
+        continue;
+      }
+      const ids = [];
+      const seen = new Set();
+      for (const row of grid) {
+        const v = String((row && row[col]) ?? "").trim();
+        if (/^\d+$/.test(v) && !seen.has(v)) {
+          seen.add(v);
+          ids.push(v);
+        }
+      }
+      if (!ids.length) {
+        attempts.push(`${path} → 0 numeric IDs in column index ${col}`);
+        continue;
+      }
+      log.info("shippers", `${ids.length} IDs from workbook ${path} (${resp.bytes} bytes)`);
+      return { ids, path, source: "workbook" };
+    } catch (e) {
+      attempts.push(`${path} → ${e.message}`);
+    }
+  }
+  log.warn("shippers", `workbook unreadable, falling back to the CSV. ${attempts.join("; ")}`);
+  return null;
+}
+
 async function readSharePoint() {
+  // Workbook first — the CSV is a published copy that can lag behind it.
+  try {
+    const wbHit = await readWorkbook();
+    if (wbHit) return wbHit;
+  } catch (e) {
+    if (e && e.expired) throw e;
+    log.warn("shippers", `workbook read failed: ${e.message}`);
+  }
+
   const src = Config.SHIPPER_SOURCE;
   const tried = new Set();
   const attempts = [];

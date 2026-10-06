@@ -64,6 +64,62 @@
   }
 
   /**
+   * Binary GET, returned base64. Needed for .xlsx (a ZIP — text() corrupts it).
+   *
+   * FileReader.readAsDataURL rather than fromCharCode/btoa over the buffer: it
+   * has no argument-count limit, and a string crosses the content-script
+   * boundary cleanly where an ArrayBuffer built on the page can't (same reason
+   * HC Calculator's bridge does it this way).
+   */
+  async function getBytes(url) {
+    dlog(`GET(bytes) ${url}`);
+    const res = await fetch(url, { method: "GET", credentials: "include", cache: "no-store" });
+    const ctype = (res.headers.get("content-type") || "").toLowerCase();
+    dlog(`← HTTP ${res.status} content-type=${ctype || "none"}`);
+    const onOrigin = !res.url || res.url.startsWith(location.origin);
+    if (res.redirected && !onOrigin) throw expiredError(`redirected to ${res.url}`);
+    if (res.ok && ctype.includes("text/html")) {
+      return { ok: false, status: 404, text: "HTML page instead of file" };
+    }
+    if (!res.ok) return { ok: false, status: res.status, text: `HTTP ${res.status}` };
+    const blob = await res.blob();
+    const data = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => {
+        const s = String(fr.result || "");
+        const comma = s.indexOf(",");
+        comma < 0 ? reject(new Error("data URL had no payload")) : resolve(s.slice(comma + 1));
+      };
+      fr.onerror = () => reject(fr.error || new Error("FileReader failed"));
+      fr.readAsDataURL(blob);
+    });
+    return { ok: true, status: res.status, data, encoding: "base64", bytes: blob.size };
+  }
+
+  /** Same candidate URLs as readFile, but returning base64 bytes. */
+  async function readFileBytes(serverRelativeUrl) {
+    const rel = String(serverRelativeUrl || "");
+    if (!rel.startsWith("/")) throw new Error(`sp:filebytes needs a server-relative path, got ${rel}`);
+    const lit = encodeURIComponent(rel.replace(/'/g, "''"));
+    const encodedPath = rel.split("/").map(encodeURIComponent).join("/");
+    const candidates = [
+      `${API_BASE}/web/GetFileByServerRelativePath(decodedurl='${lit}')/$value`,
+      `${API_BASE}/web/GetFileByServerRelativeUrl('${lit}')/$value`,
+      `${location.origin}${SITE_PATH}/_layouts/15/download.aspx?SourceUrl=${lit}`,
+      `${location.origin}${encodedPath}?download=1`,
+    ];
+    let last = null;
+    for (const url of candidates) {
+      const r = await getBytes(url);
+      if (r.ok) return r;
+      last = r;
+    }
+    throw new Error(
+      `SharePoint file not readable ${rel} (last: HTTP ${last ? last.status : "?"} ${last ? last.text : ""})`
+    );
+  }
+
+  /**
    * Read a file by server-relative URL. Two strategies (MS Viewer spClient):
    *   1. site-scoped REST GetFileByServerRelativePath(...)/$value
    *   2. direct download URL (?download=1) — works across sites of the tenant
@@ -245,6 +301,11 @@
           dlog(`read ${text.length} chars; first line: ${text.split(/\r?\n/)[0].slice(0, 100)}`);
           return ok({ text });
         })
+        .catch(fail);
+    }
+    if (msg.action === "sp:filebytes") {
+      return readFileBytes(msg.serverRelativeUrl)
+        .then((r) => ok({ data: r.data, encoding: r.encoding, bytes: r.bytes }))
         .catch(fail);
     }
     if (msg.action === "sp:search") {

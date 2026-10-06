@@ -72,12 +72,28 @@ export const Config = {
     "https://api.github.com/*",
     "https://raw.githubusercontent.com/*",
   ],
+  // PREFERRED: the hand-maintained workbook itself, read live from SharePoint
+  // and parsed by background/xlsx.js. Removes the dependency on someone having
+  // run CST_viewer's scripts/update_shippers.py to publish the CSV below.
+  // idColumn is 0-based (1 = column B), matching that script's usecols.
+  SHIPPER_WORKBOOK: {
+    paths: [
+      "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations/Source of Truth 2026.xlsx",
+      "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations/Source Of Truth 2026.xlsx",
+    ],
+    sheet: "Shippers",
+    idColumn: 1,
+  },
+
   SHIPPER_SOURCE: {
     file: "source_of_truth_crawler.csv",
     // The OneDrive-synced library "Amazon Freight Operations - CST" is the
     // site's default library, URL segment "Shared Documents" (confirmed from
     // the OneDrive sync DB, 2026-09-21).
     paths: [
+      // Confirmed live path — the library root is "Shared Documents" and the
+      // folder chain starts with CST/. The two below are older guesses.
+      "/sites/AmazonFreightOperations/Shared Documents/CST/CST L4+/PROCESS IMPROVEMENT/source_of_truth_crawler.csv",
       "/sites/AmazonFreightOperations/Shared Documents/CST L4+/PROCESS IMPROVEMENT/source_of_truth_crawler.csv",
       "/sites/AmazonFreightOperations/CST/CST L4+/PROCESS IMPROVEMENT/source_of_truth_crawler.csv",
     ],
