@@ -823,7 +823,7 @@
     const uniqueOrders = new Set(rows.map((r) => String(r.orderid ?? ""))).size;
     const cards = [card("Loads (VRIDs)", n), card("Orders", uniqueOrders), card("Planned", byStatus.PLANNED || 0, "FMC status"), card("Countries", Object.keys(byCountry).length)];
     let byGroup = null;
-    if (team && (team.shipperList || team.shipperSource)) {
+    if (team && (team.shipperList || team.shipperSource || team.shipperWorkbook)) {
       byGroup = countBy(rows, "shipper_group", "(no group)");
       const top = topSeries(byGroup, 1)[0];
       cards.push(card("Shipper groups", Object.keys(byGroup).length, top ? `top: ${top.label} (${top.value})` : ""));

@@ -128,6 +128,53 @@
    * document library. Only the redirect/401/403 checks apply (the content-type
    * is text/csv, not JSON).
    */
+  /**
+   * Binary file GET, returned base64-encoded (runtime messaging is
+   * JSON-serialisable, so raw bytes can't cross it). Used for .xlsx, which is a
+   * ZIP and must not go through res.text().
+   */
+  async function doGetBytes(path) {
+    const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+    const res = await fetch(url, { method: "GET", credentials: "include" });
+    const onOrigin = !res.url || res.url.startsWith(location.origin);
+    if (res.redirected && !onOrigin) {
+      const err = new Error(`redirected to the sign-in page (${res.url})`);
+      err.status = 401;
+      err.expired = true;
+      throw err;
+    }
+    if (res.status === 401) {
+      const err = new Error("not signed in (HTTP 401)");
+      err.status = 401;
+      err.expired = true;
+      throw err;
+    }
+    if (res.status === 403) {
+      const err = new Error("access denied (HTTP 403)");
+      err.status = 403;
+      err.denied = true;
+      err.expired = false;
+      throw err;
+    }
+    const ctype = (res.headers.get("content-type") || "").toLowerCase();
+    if (res.ok && ctype.includes("text/html")) {
+      const err = new Error("got HTML instead of a file — session likely expired");
+      err.status = 401;
+      err.expired = true;
+      throw err;
+    }
+    if (!res.ok) {
+      return { ok: false, status: res.status, body: (await safeText(res)) || "", data: null };
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    let bin = "";
+    const CHUNK = 0x8000; // avoid blowing the argument limit on big files
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+    }
+    return { ok: true, status: res.status, body: null, data: btoa(bin), encoding: "base64" };
+  }
+
   async function doGetRaw(path) {
     const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
     const res = await fetch(url, { method: "GET", credentials: "include" });
@@ -219,9 +266,11 @@
     }
     const run =
       method === "GET"
-        ? raw
-          ? doGetRaw(path)
-          : doGet(path)
+        ? raw === "bytes"
+          ? doGetBytes(path)
+          : raw
+            ? doGetRaw(path)
+            : doGet(path)
         : doWrite(method, path, body, etag);
     return run
       .then((result) => ({ bridge: true, ...result }))

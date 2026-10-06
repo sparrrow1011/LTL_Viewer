@@ -242,6 +242,29 @@ export async function spGetFileText(serverRelativeUrl) {
 }
 
 /**
+ * Read a document-library file as BYTES (base64 over messaging → Uint8Array).
+ * Needed for .xlsx, which is a ZIP and must not be decoded as text.
+ */
+export async function spGetFileBytes(serverRelativeUrl) {
+  const rel = String(serverRelativeUrl);
+  const lit = rel.replace(/'/g, "''");
+  const apiPath = `/web/GetFileByServerRelativePath(decodedurl='${encodeURIComponent(lit)}')/$value`;
+  log.debug("FILE(bytes)", rel);
+  let r = await bridgeRequest({ method: "GET", path: apiPath, raw: "bytes" });
+  log.debug("FILE(bytes)", `api → HTTP ${r.status}`, rel);
+  if (r.ok) return r.data; // base64
+  if (r.status === 401 || r.status === 403 || r.expired || r.denied) {
+    throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body, r);
+  }
+  // Direct download URL — resolves files on any site of the tenant.
+  const direct = `${Config.SP_ORIGIN}${rel.split("/").map(encodeURIComponent).join("/")}?download=1`;
+  r = await bridgeRequest({ method: "GET", path: direct, raw: "bytes" });
+  log.debug("FILE(bytes)", `direct → HTTP ${r.status}`, rel);
+  if (!r.ok) throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body, r);
+  return r.data;
+}
+
+/**
  * Find files by name via SharePoint Search. Returns server-relative paths (on
  * this tenant), most relevant first. Best-effort: returns [] on any failure.
  */

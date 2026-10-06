@@ -15,7 +15,8 @@
  */
 
 import * as store from "./sharepointStore.js";
-import { spGetFileText, spSearchFilePaths, SpError } from "./spClient.js";
+import { spGetFileText, spGetFileBytes, spSearchFilePaths, SpError } from "./spClient.js";
+import { readSheet, base64ToBytes } from "./xlsx.js";
 import * as fmcClient from "./fmcClient.js";
 import { log } from "./debug.js";
 
@@ -588,6 +589,63 @@ async function _setOverride(team, value) {
 }
 
 /**
+ * Read the shipper list straight out of the SharePoint workbook.
+ *
+ * Columns are positional (B/C/L by default), matching update_shippers.py's
+ * usecols + rename-by-position, so both read the sheet the same way. Rows whose
+ * id isn't numeric are dropped, which removes the header and any spacer rows.
+ *
+ * @returns {Promise<{shippers, path, count}|null>} null if no path resolved.
+ */
+async function _shippersFromWorkbook(team, wb) {
+  const cols = wb.columns || { shipperid: "B", shippername: "C", shipper_group: "L" };
+  const tried = new Set();
+  const candidates = [...(wb.paths || [])];
+
+  const attempt = async (path) => {
+    if (!path || tried.has(path)) return null;
+    tried.add(path);
+    let b64;
+    try {
+      b64 = await spGetFileBytes(path);
+    } catch (e) {
+      if (e instanceof SpError && (e.expired || e.denied)) throw e;
+      log.debug("shippers", `workbook ${path}: ${e && e.message}`);
+      return null;
+    }
+    const { rows, sheets, part } = await readSheet(base64ToBytes(b64), wb.sheet || "Shippers");
+    log.debug("shippers", `workbook ${path}: sheet part ${part}, ${rows.length} rows (sheets: ${sheets.join(", ")})`);
+    const shippers = {};
+    for (const r of rows) {
+      const s = cleanShipper({
+        shipperid: r[cols.shipperid],
+        shippername: r[cols.shippername],
+        shipper_group: r[cols.shipper_group],
+      });
+      if (s) shippers[s.shipperid] = s;
+    }
+    const count = Object.keys(shippers).length;
+    if (!count) {
+      log.warn("shippers", `workbook ${path}: parsed 0 valid shippers — wrong columns?`);
+      return null;
+    }
+    return { shippers, path, count };
+  };
+
+  for (const p of candidates) {
+    const hit = await attempt(p);
+    if (hit) return hit;
+  }
+  if (wb.file) {
+    for (const p of await spSearchFilePaths(wb.file)) {
+      const hit = await attempt(p);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/**
  * Try to read the shipper CSV from SharePoint. Returns { shippers, path } or
  * null if no candidate path works. Session expiry is re-thrown so the overlay
  * can prompt for sign-in instead of silently falling back.
@@ -664,7 +722,26 @@ export async function getShippers(team, { force = false, useFile = false } = {})
   if (!force && !useFile && cached && Date.now() - cached.fetchedAt < ttlMs) return cached;
 
   let result = null;
-  if (src) {
+
+  // 1. The workbook itself — no dependency on update_shippers.py having run.
+  const wb = override === "list" ? null : cfg.shipperWorkbook;
+  if (wb) {
+    try {
+      const hit = await _shippersFromWorkbook(cfg.key, wb);
+      if (hit) {
+        result = { shippers: hit.shippers, source: "workbook", path: hit.path };
+        log.info("shippers", `${cfg.key}: ${hit.count} from workbook ${hit.path}`);
+      } else {
+        log.warn("shippers", `${cfg.key}: workbook not readable — falling back to the published CSV`);
+      }
+    } catch (e) {
+      if (e instanceof SpError && (e.expired || e.denied)) throw e;
+      log.warn("shippers", `${cfg.key}: workbook read failed (${e && e.message}) — falling back to CSV`);
+    }
+  }
+
+  // 2. The CSV update_shippers.py publishes.
+  if (!result && src) {
     const hit = await _shippersFromSharePointFile(cfg.key, src);
     if (hit) {
       await _storePath(cfg.key, hit.path);

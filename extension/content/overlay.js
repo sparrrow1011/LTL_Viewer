@@ -26,7 +26,7 @@
   // Teams with a shipper source-of-truth list also show the shipper group
   // (e.g. CST / CST - ELEX / CST - Mega Shipper) right after the shipper name.
   function columns() {
-    if (teamCfg && (teamCfg.shipperList || teamCfg.shipperSource)) {
+    if (teamCfg && (teamCfg.shipperList || teamCfg.shipperSource || teamCfg.shipperWorkbook)) {
       return ["shippername", "shipper_group", ...BASE_COLUMNS.slice(1)];
     }
     if (teamCfg && teamCfg.fmcSearch) {
@@ -789,7 +789,7 @@
   // Load (and cache per team) the shipper source-of-truth map from SharePoint.
   // Only for teams that have one. `force` bypasses the cache (after an import).
   function teamHasShippers() {
-    return !!(teamCfg && (teamCfg.shipperList || teamCfg.shipperSource));
+    return !!(teamCfg && (teamCfg.shipperList || teamCfg.shipperSource || teamCfg.shipperWorkbook));
   }
 
   async function ensureShippers(force = false, { useFile = false } = {}) {
@@ -1107,7 +1107,9 @@
           state.rows = [];
           populateFilters();
           applySearchAndRender();
-          const file = teamCfg.shipperSource && teamCfg.shipperSource.file;
+          const file =
+            (teamCfg.shipperWorkbook && teamCfg.shipperWorkbook.file) ||
+            (teamCfg.shipperSource && teamCfg.shipperSource.file);
           showEmptyNotice(
             file
               ? `Couldn't find “${file}” in SharePoint for ${teamCfg.label}. Make sure ` +
@@ -1984,6 +1986,11 @@
       btn.title =
         `${teamCfg.label} shippers came from a manual import into “${teamCfg.shipperList}”.\n` +
         `Click to discard the override and re-read the SharePoint CSV instead.`;
+    } else if (src === "workbook") {
+      btn.textContent = `Shippers (${n}) ↻`;
+      btn.title =
+        `${teamCfg.label} shippers read straight from the Source of Truth workbook:\n${shipperInfo.path}\n` +
+        `Loaded ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}. Click to re-read.`;
     } else if (src === "file") {
       btn.textContent = `Shippers (${n}) ↻`;
       btn.title =
@@ -2001,7 +2008,7 @@
   async function onShippersClick() {
     if (!teamHasShippers()) return;
     const src = shipperInfo ? shipperInfo.source : "none";
-    if (src === "file" || src === "manual") {
+    if (src === "workbook" || src === "file" || src === "manual") {
       // Re-read the SharePoint CSV, dropping any manual override.
       try {
         setBusy(true);

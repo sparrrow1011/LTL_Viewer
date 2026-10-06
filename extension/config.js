@@ -123,10 +123,35 @@ export const Config = {
       label: "CST",
       description: "Customer shipper team — TL/Intermodal for the CST shipper list.",
       spList: "CST_Records",
-      // Shipper source of truth. CST_viewer's scripts/update_shippers.py exports
-      // the "Shippers" sheet of "Source Of Truth 2026.xlsx" to
-      // source_of_truth_crawler.csv inside the SharePoint-synced library
-      // "Amazon Freight Operations - CST" (OneDrive name = "<site> - <library>").
+      // PREFERRED shipper source: the hand-maintained workbook itself, read
+      // from SharePoint and parsed in-browser (background/xlsx.js).
+      //
+      // This is the same file CST_viewer's scripts/update_shippers.py reads, so
+      // going direct drops the dependency on someone running that script to
+      // publish the CSV — until now a missed run meant the extension quietly
+      // served a stale shipper list. Columns are POSITIONAL, matching
+      // update_shippers.py's usecols="B, C, L" + rename-by-position, so a
+      // reordered sheet breaks both the same way rather than diverging.
+      //
+      // Verified against the live workbook: 127 shippers, an identical id set
+      // to the published CSV (CST 77 / Mega Shipper 10 / ELEX 40).
+      shipperWorkbook: {
+        paths: [
+          // From the share link; the second covers the capitalised variant.
+          "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations/Source of Truth 2026.xlsx",
+          "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations/Source Of Truth 2026.xlsx",
+        ],
+        file: "Source of Truth 2026.xlsx", // Search fallback if it's moved
+        sheet: "Shippers",
+        columns: { shipperid: "B", shippername: "C", shipper_group: "L" },
+        ttlMinutes: 30,
+      },
+
+      // FALLBACK: the CSV that update_shippers.py publishes.
+      // CST_viewer's scripts/update_shippers.py exports the "Shippers" sheet of
+      // "Source Of Truth 2026.xlsx" to source_of_truth_crawler.csv inside the
+      // SharePoint-synced library "Amazon Freight Operations - CST"
+      // (OneDrive name = "<site> - <library>").
       // We read that CSV straight from SharePoint via the bridge:
       //   1. each `paths` entry (server-relative), in order
       //   2. the last path that worked (cached in browser.storage)
