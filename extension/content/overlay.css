@@ -923,3 +923,57 @@ html[data-theme="dark"] .ltl-calc-breakdown { color: #93c5fd; }
 html[data-theme="dark"] .ltl-lane-link { color: #60a5fa; }
 html[data-theme="dark"] .ltl-dash-lanes td.ltl-lane-ms { color: #c4b5fd; }
 html[data-theme="dark"] .ltl-dash-lanes td.ltl-lane-open { color: #fcd34d; background: rgba(245, 158, 11, 0.18); }
+
+/* ── Shipper list dialog ── */
+.ltl-ship-card { max-width: 720px; display: flex; flex-direction: column; max-height: 80vh; }
+.ltl-ship-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+.ltl-ship-bar input[type="search"] {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #1d1c1d;
+}
+.ltl-ship-groups { font-size: 11px; color: #64748b; }
+.ltl-ship-body { flex: 1; overflow-y: auto; min-height: 120px; }
+table.ltl-ship-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.ltl-ship-table th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  color: #475569;
+  text-align: left;
+  padding: 7px 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+table.ltl-ship-table td { padding: 6px 16px; border-bottom: 1px solid #eef2f7; }
+table.ltl-ship-table tbody tr:hover { background: #f9fafb; }
+td.ltl-ship-id { font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+.ltl-ship-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  flex-wrap: wrap;
+}
+.ltl-ship-count { font-size: 11px; color: #64748b; }
+
+html[data-theme="dark"] .ltl-ship-bar { border-bottom-color: #2a3140; }
+html[data-theme="dark"] .ltl-ship-bar input[type="search"] { background: #0b0e14; border-color: #334155; color: #e2e8f0; }
+html[data-theme="dark"] table.ltl-ship-table th { background: #171c25; color: #94a3b8; }
+html[data-theme="dark"] table.ltl-ship-table td { border-bottom-color: #232a36; }
+html[data-theme="dark"] table.ltl-ship-table tbody tr:hover { background: #171c25; }
+html[data-theme="dark"] .ltl-ship-foot { background: #171c25; border-top-color: #2a3140; }

@@ -1981,18 +1981,19 @@
         `instead of the SharePoint CSV until you click Shippers ↻.`;
     }
     const src = shipperInfo ? shipperInfo.source : "none";
+    // Clicking now opens the list dialog (re-read / import live in its footer).
     if (src === "manual") {
-      btn.textContent = `Shippers (${n}) · manual ↻`;
+      btn.textContent = `Shippers (${n}) · manual`;
       btn.title =
         `${teamCfg.label} shippers came from a manual import into “${teamCfg.shipperList}”.\n` +
-        `Click to discard the override and re-read the SharePoint CSV instead.`;
+        `Click to view the list, re-read from SharePoint, or re-import.`;
     } else if (src === "workbook") {
-      btn.textContent = `Shippers (${n}) ↻`;
+      btn.textContent = `Shippers (${n})`;
       btn.title =
         `${teamCfg.label} shippers read straight from the Source of Truth workbook:\n${shipperInfo.path}\n` +
-        `Loaded ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}. Click to re-read.`;
+        `Loaded ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}. Click to view the list.`;
     } else if (src === "file") {
-      btn.textContent = `Shippers (${n}) ↻`;
+      btn.textContent = `Shippers (${n})`;
       btn.title =
         `${teamCfg.label} shippers read automatically from SharePoint:\n${shipperInfo.path}\n` +
         `Loaded ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}. Click to re-read.`;
@@ -2005,26 +2006,132 @@
     }
   }
 
-  async function onShippersClick() {
+  // ── shipper list popup ────────────────────────────────────────────────────
+  // Clicking "Shippers (N)" shows the actual list. It used to silently re-read
+  // from SharePoint, which gave no sight of what the team is scoped to; the
+  // re-read and the CSV import now live in this dialog's footer.
+  const SHIP_SOURCE_LABEL = {
+    workbook: "Source of Truth workbook",
+    file: "published source_of_truth_crawler.csv",
+    manual: "manual CSV import",
+    list: `SharePoint list (the CSV wasn't readable)`,
+    none: "nothing loaded",
+  };
+
+  async function openShipperList() {
     if (!teamHasShippers()) return;
-    const src = shipperInfo ? shipperInfo.source : "none";
-    if (src === "workbook" || src === "file" || src === "manual") {
-      // Re-read the SharePoint CSV, dropping any manual override.
+    const modal = root.querySelector("#ltl-shiplist");
+    modal.classList.add("ltl-open");
+    // Load on first open so the dialog isn't empty while SharePoint answers.
+    if (!shipperMap) {
+      root.querySelector("#ltl-ship-sub").textContent = "Loading…";
       try {
-        setBusy(true);
-        await ensureShippers(true, { useFile: true });
-        updateShippersButton();
-        toast(`Shippers refreshed: ${Object.keys(shipperMap || {}).length}`, "success");
+        await ensureShippers();
       } catch (e) {
-        toast(`Couldn't refresh shippers: ${e.message}`, "error");
-        return;
-      } finally {
-        setBusy(false);
+        root.querySelector("#ltl-ship-sub").textContent = `Couldn't load shippers: ${e.message}`;
       }
-      await fetchData();
+    }
+    renderShipperList();
+    root.querySelector("#ltl-ship-search").focus();
+  }
+
+  function closeShipperList() {
+    root.querySelector("#ltl-shiplist")?.classList.remove("ltl-open");
+  }
+
+  function shipperRows() {
+    return Object.values(shipperMap || {}).sort((a, b) =>
+      String(a.shippername || "").localeCompare(String(b.shippername || ""))
+    );
+  }
+
+  function renderShipperList() {
+    const all = shipperRows();
+    const src = shipperInfo ? shipperInfo.source : "none";
+    root.querySelector("#ltl-ship-h").textContent = `${teamCfg.label} shippers (${all.length})`;
+    root.querySelector("#ltl-ship-sub").textContent =
+      `From the ${SHIP_SOURCE_LABEL[src] || src}` +
+      (shipperInfo && shipperInfo.path ? ` · ${shipperInfo.path}` : "") +
+      (shipperInfo && shipperInfo.fetchedAt
+        ? ` · loaded ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}`
+        : "");
+
+    // Group tally — the split the team actually thinks in.
+    const groups = {};
+    for (const s of all) groups[s.shipper_group || "(no group)"] = (groups[s.shipper_group || "(no group)"] || 0) + 1;
+    root.querySelector("#ltl-ship-groups").textContent = Object.entries(groups)
+      .sort((a, b) => b[1] - a[1])
+      .map(([g, n]) => `${g}: ${n}`)
+      .join("  ·  ");
+
+    const q = (root.querySelector("#ltl-ship-search").value || "").trim().toLowerCase();
+    const rows = q
+      ? all.filter((s) =>
+          [s.shipperid, s.shippername, s.shipper_group].some((v) => String(v || "").toLowerCase().includes(q))
+        )
+      : all;
+
+    const tbody = root.querySelector("#ltl-ship-tbody");
+    tbody.innerHTML = "";
+    for (const s of rows) {
+      tbody.appendChild(
+        el("tr", {}, [
+          el("td", { text: s.shipperid, class: "ltl-ship-id" }),
+          el("td", { text: s.shippername || "" }),
+          el("td", { text: s.shipper_group || "" }),
+        ])
+      );
+    }
+    const empty = root.querySelector("#ltl-ship-empty");
+    empty.style.display = rows.length ? "none" : "block";
+    empty.textContent = all.length
+      ? `No shipper matches “${q}”.`
+      : `No shippers loaded for ${teamCfg.label}. Use Import CSV… or check the workbook is readable.`;
+    root.querySelector("#ltl-ship-count").textContent =
+      q && rows.length !== all.length ? `${rows.length} of ${all.length} shown` : `${all.length} shipper(s)`;
+  }
+
+  // Re-read from SharePoint (drops any manual override), then re-render.
+  // The sourcing list itself reloads on the next refresh — not here, so the
+  // dialog doesn't yank the table out from under you.
+  async function onShipperListRefresh() {
+    try {
+      setBusy(true);
+      setLoadingText("Re-reading the shipper list…");
+      await ensureShippers(true, { useFile: true });
+      updateShippersButton();
+      renderShipperList();
+      toast(`Shippers re-read: ${Object.keys(shipperMap || {}).length}`, "success");
+    } catch (e) {
+      toast(`Couldn't re-read shippers: ${e.message}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onShipperListCsv() {
+    const rows = shipperRows();
+    if (!rows.length) {
+      toast("No shippers to export", "info");
       return;
     }
-    await onImportShippers();
+    const cell = (v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [
+      "shipperid,shippername,shipper_group",
+      ...rows.map((s) => [s.shipperid, s.shippername, s.shipper_group].map(cell).join(",")),
+    ];
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${teamCfg.key}_Shippers_${rows.length}_${todayIso()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    toast(`Exported ${rows.length} shippers`, "success");
   }
 
   // ── shipper CSV import (port of source_of_truth_crawler.csv) ──────────────
@@ -2124,6 +2231,8 @@
         // what was just uploaded rather than the SharePoint CSV.
         await ensureShippers(true);
         updateShippersButton();
+        // Keep the list dialog in step if it's open behind the file picker.
+        if (root.querySelector("#ltl-shiplist.ltl-open")) renderShipperList();
       } catch (e) {
         // Include the real status + SharePoint's own text: "session expired"
         // alone sent people to re-sign-in for what was often a permissions
@@ -2450,6 +2559,35 @@
           <div id="ltl-pipe-actions" class="ltl-pipe-actions"></div>
         </div>
       </div>
+      <div id="ltl-shiplist" class="ltl-calc ltl-shiplist">
+        <div class="ltl-calc-card ltl-ship-card" role="dialog" aria-modal="true" aria-labelledby="ltl-ship-h">
+          <div class="ltl-calc-head">
+            <div>
+              <h3 id="ltl-ship-h">Shippers</h3>
+              <div id="ltl-ship-sub" class="ltl-calc-sub"></div>
+            </div>
+            <button type="button" id="ltl-ship-close" class="ltl-calc-close" title="Close (Esc)">×</button>
+          </div>
+          <div class="ltl-ship-bar">
+            <input type="search" id="ltl-ship-search" placeholder="Search id, name or group…" />
+            <span id="ltl-ship-groups" class="ltl-ship-groups"></span>
+          </div>
+          <div class="ltl-ship-body">
+            <table class="ltl-ship-table">
+              <thead><tr><th>Shipper ID</th><th>Name</th><th>Group</th></tr></thead>
+              <tbody id="ltl-ship-tbody"></tbody>
+            </table>
+            <div id="ltl-ship-empty" class="ltl-dash-empty ltl-dash-empty-sm" style="display:none"></div>
+          </div>
+          <div class="ltl-ship-foot">
+            <span id="ltl-ship-count" class="ltl-ship-count"></span>
+            <span class="ltl-spacer" style="flex:1"></span>
+            <button type="button" id="ltl-ship-refresh" class="ltl-btn ltl-gray" title="Re-read the shipper list from SharePoint">↻ Re-read</button>
+            <button type="button" id="ltl-ship-import" class="ltl-btn ltl-gray" title="Upload a shipper CSV by hand">Import CSV…</button>
+            <button type="button" id="ltl-ship-csv" class="ltl-btn ltl-gray" title="Download this list as CSV">Download CSV</button>
+          </div>
+        </div>
+      </div>
       <div id="ltl-calc" class="ltl-calc">
         <div class="ltl-calc-card" role="dialog" aria-modal="true" aria-labelledby="ltl-calc-h">
           <div class="ltl-calc-head">
@@ -2539,7 +2677,9 @@
       if (e.target.id === "ltl-calc") closeMarginCalculator(); // backdrop only
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && root.querySelector("#ltl-calc.ltl-open")) closeMarginCalculator();
+      if (e.key !== "Escape") return;
+      if (root.querySelector("#ltl-calc.ltl-open")) closeMarginCalculator();
+      if (root.querySelector("#ltl-shiplist.ltl-open")) closeShipperList();
     });
     root.querySelector("#ltl-auto").addEventListener("change", (e) => setAuto(e.target.value));
     root.querySelector("#ltl-apply").addEventListener("click", fetchData);
@@ -2569,8 +2709,17 @@
       root.querySelector(`#${id}`)?.addEventListener("change", applySearchAndRender);
     });
     root.querySelector("#ltl-refresh").addEventListener("click", fetchData);
-    root.querySelector("#ltl-shippers").addEventListener("click", onShippersClick);
+    root.querySelector("#ltl-shippers").addEventListener("click", openShipperList);
     root.querySelector("#ltl-shippers-import").addEventListener("click", onImportShippers);
+    // Shipper list dialog: live search, footer actions, close on × / backdrop.
+    root.querySelector("#ltl-ship-search").addEventListener("input", renderShipperList);
+    root.querySelector("#ltl-ship-close").addEventListener("click", closeShipperList);
+    root.querySelector("#ltl-ship-refresh").addEventListener("click", onShipperListRefresh);
+    root.querySelector("#ltl-ship-import").addEventListener("click", onImportShippers);
+    root.querySelector("#ltl-ship-csv").addEventListener("click", onShipperListCsv);
+    root.querySelector("#ltl-shiplist").addEventListener("click", (e) => {
+      if (e.target.id === "ltl-shiplist") closeShipperList();
+    });
     root.querySelector("#ltl-covered").addEventListener("click", async () => {
       const goingToCovered = viewMode !== "covered";
       setViewMode(goingToCovered ? "covered" : "sourcing");
