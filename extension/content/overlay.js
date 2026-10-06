@@ -2049,11 +2049,15 @@
     const all = shipperRows();
     const src = shipperInfo ? shipperInfo.source : "none";
     root.querySelector("#ltl-ship-h").textContent = `${teamCfg.label} shippers (${all.length})`;
+    // "last edited" is the live file's own timestamp from SharePoint — the
+    // answer to "is this list current?". "read" is when we fetched it.
+    const edited = shipperInfo && shipperInfo.modified ? new Date(shipperInfo.modified) : null;
     root.querySelector("#ltl-ship-sub").textContent =
-      `From the ${SHIP_SOURCE_LABEL[src] || src}` +
+      `Live from the ${SHIP_SOURCE_LABEL[src] || src}` +
       (shipperInfo && shipperInfo.path ? ` · ${shipperInfo.path}` : "") +
+      (edited && !Number.isNaN(edited.getTime()) ? ` · last edited ${edited.toLocaleString()}` : "") +
       (shipperInfo && shipperInfo.fetchedAt
-        ? ` · loaded ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}`
+        ? ` · read ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}`
         : "");
 
     // Group tally — the split the team actually thinks in.

@@ -15,7 +15,7 @@
  */
 
 import * as store from "./sharepointStore.js";
-import { spGetFileText, spGetFileBytes, spSearchFilePaths, SpError } from "./spClient.js";
+import { spGetFileText, spGetFileBytes, spGetFileInfo, spSearchFilePaths, SpError } from "./spClient.js";
 import { readSheet, base64ToBytes } from "./xlsx.js";
 import * as fmcClient from "./fmcClient.js";
 import { log } from "./debug.js";
@@ -629,7 +629,10 @@ async function _shippersFromWorkbook(team, wb) {
       log.warn("shippers", `workbook ${path}: parsed 0 valid shippers — wrong columns?`);
       return null;
     }
-    return { shippers, path, count };
+    // When the LIVE file was last edited — the thing that makes "is this list
+    // current?" answerable at a glance.
+    const info = await spGetFileInfo(path);
+    return { shippers, path, count, modified: info && info.modified };
   };
 
   for (const p of candidates) {
@@ -729,8 +732,12 @@ export async function getShippers(team, { force = false, useFile = false } = {})
     try {
       const hit = await _shippersFromWorkbook(cfg.key, wb);
       if (hit) {
-        result = { shippers: hit.shippers, source: "workbook", path: hit.path };
-        log.info("shippers", `${cfg.key}: ${hit.count} from workbook ${hit.path}`);
+        result = { shippers: hit.shippers, source: "workbook", path: hit.path, modified: hit.modified };
+        log.info(
+          "shippers",
+          `${cfg.key}: ${hit.count} from workbook ${hit.path}` +
+            (hit.modified ? ` (last edited ${hit.modified})` : "")
+        );
       } else {
         log.warn("shippers", `${cfg.key}: workbook not readable — falling back to the published CSV`);
       }

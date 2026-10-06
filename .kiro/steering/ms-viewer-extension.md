@@ -68,8 +68,16 @@ locally. Say so explicitly instead of implying live verification.
 - FMC = per-VRID enrichment + outcome sweep via `content/fmc-bridge.js`.
 - After a save refresh ONLY SharePoint records (`refreshRecords`), never
   re-fetch SMC.
-- CST shippers come from `source_of_truth_crawler.csv` on SharePoint
-  (`shipperSource`), fallback `CST_Shippers` list + manual import.
+- CST shippers: read LIVE from SharePoint, in this order — the Source of Truth
+  workbook (`shipperWorkbook`, parsed by `background/xlsx.js`), then the
+  published `source_of_truth_crawler.csv` (`shipperSource`), then the
+  `CST_Shippers` list (manual import, which sets a "use the list" override).
+- ALWAYS the online/SharePoint copy, never the OneDrive-synced one. The local
+  OneDrive copy runs days stale (CST_viewer's `update_shippers.py` reads it,
+  which is why its published CSV lags). Don't verify shipper questions against
+  `~\OneDrive*\Amazon Freight Operations - CST\...` — it will mislead you. File
+  reads use `cache:"no-store"`, and the Shippers dialog shows the live file's
+  `TimeLastModified` so staleness is visible.
 
 ## Conventions
 

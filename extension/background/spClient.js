@@ -242,6 +242,30 @@ export async function spGetFileText(serverRelativeUrl) {
 }
 
 /**
+ * File metadata (server-side, so it reflects the LIVE file rather than any
+ * synced copy). Used to show when the shipper workbook was last edited, so a
+ * stale list is visible instead of silent. Best-effort: returns null on failure.
+ * @returns {Promise<{modified: string|null, name: string|null, length: number|null}|null>}
+ */
+export async function spGetFileInfo(serverRelativeUrl) {
+  const lit = String(serverRelativeUrl).replace(/'/g, "''");
+  const path =
+    `/web/GetFileByServerRelativePath(decodedurl='${encodeURIComponent(lit)}')` +
+    `?$select=TimeLastModified,Name,Length`;
+  try {
+    const d = await spGet(path);
+    return {
+      modified: d?.TimeLastModified || null,
+      name: d?.Name || null,
+      length: d?.Length != null ? Number(d.Length) : null,
+    };
+  } catch (e) {
+    log.debug("FILE(info)", `${serverRelativeUrl}: ${e && e.message}`);
+    return null;
+  }
+}
+
+/**
  * Read a document-library file as BYTES (base64 over messaging → Uint8Array).
  * Needed for .xlsx, which is a ZIP and must not be decoded as text.
  */

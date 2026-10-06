@@ -135,7 +135,9 @@
    */
   async function doGetBytes(path) {
     const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-    const res = await fetch(url, { method: "GET", credentials: "include" });
+    // cache:"no-store" — the shipper workbook is edited in place, and a cached
+    // copy would be indistinguishable from a current one. Always go to SharePoint.
+    const res = await fetch(url, { method: "GET", credentials: "include", cache: "no-store" });
     const onOrigin = !res.url || res.url.startsWith(location.origin);
     if (res.redirected && !onOrigin) {
       const err = new Error(`redirected to the sign-in page (${res.url})`);
@@ -177,7 +179,8 @@
 
   async function doGetRaw(path) {
     const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-    const res = await fetch(url, { method: "GET", credentials: "include" });
+    // See doGetBytes: file reads must never come from cache.
+    const res = await fetch(url, { method: "GET", credentials: "include", cache: "no-store" });
     const onOrigin = !res.url || res.url.startsWith(location.origin);
     if ((res.redirected && !onOrigin) || res.status === 401 || res.status === 403) {
       const err = new Error(`SharePoint session expired — HTTP ${res.status}`);
