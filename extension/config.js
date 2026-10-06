@@ -141,6 +141,15 @@ export const Config = {
           "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations/Source of Truth 2026.xlsx",
           "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations/Source Of Truth 2026.xlsx",
         ],
+        // If the exact paths miss, list these folders and match on name. Far
+        // more robust in a hand-managed library, where capitalisation, double
+        // spaces and "(1)" copies all break an exact path — and when nothing
+        // matches, the log/dialog reports what IS in the folder.
+        folders: [
+          "/sites/AmazonFreightOperations/Shared Documents/CST/CST Operations",
+          "/sites/AmazonFreightOperations/Shared Documents/CST",
+        ],
+        match: "source\\s*of\\s*truth.*\\.xlsx$",
         file: "Source of Truth 2026.xlsx", // Search fallback if it's moved
         sheet: "Shippers",
         columns: { shipperid: "B", shippername: "C", shipper_group: "L" },

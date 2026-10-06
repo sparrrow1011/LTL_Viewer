@@ -977,3 +977,14 @@ html[data-theme="dark"] table.ltl-ship-table th { background: #171c25; color: #9
 html[data-theme="dark"] table.ltl-ship-table td { border-bottom-color: #232a36; }
 html[data-theme="dark"] table.ltl-ship-table tbody tr:hover { background: #171c25; }
 html[data-theme="dark"] .ltl-ship-foot { background: #171c25; border-top-color: #2a3140; }
+
+/* Shipper dialog: "workbook unreadable, using fallback" notice */
+.ltl-ship-warn {
+  padding: 8px 16px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  color: #78350f;
+  font-size: 11px;
+  word-break: break-word;
+}
+html[data-theme="dark"] .ltl-ship-warn { background: #2a2410; border-bottom-color: #4b3a0f; color: #fde68a; }

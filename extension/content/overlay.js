@@ -2060,6 +2060,15 @@
         ? ` · read ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}`
         : "");
 
+    // If we wanted the workbook but couldn't read it, say so here rather than
+    // silently showing the (possibly older) published CSV.
+    const warn = root.querySelector("#ltl-ship-warn");
+    if (warn) {
+      const err = shipperInfo && shipperInfo.workbookError;
+      warn.style.display = err ? "" : "none";
+      warn.textContent = err ? `Workbook unreadable, using the fallback above — ${err}` : "";
+    }
+
     // Group tally — the split the team actually thinks in.
     const groups = {};
     for (const s of all) groups[s.shipper_group || "(no group)"] = (groups[s.shipper_group || "(no group)"] || 0) + 1;
@@ -2572,6 +2581,7 @@
             </div>
             <button type="button" id="ltl-ship-close" class="ltl-calc-close" title="Close (Esc)">×</button>
           </div>
+          <div id="ltl-ship-warn" class="ltl-ship-warn" style="display:none"></div>
           <div class="ltl-ship-bar">
             <input type="search" id="ltl-ship-search" placeholder="Search id, name or group…" />
             <span id="ltl-ship-groups" class="ltl-ship-groups"></span>

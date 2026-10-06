@@ -242,6 +242,30 @@ export async function spGetFileText(serverRelativeUrl) {
 }
 
 /**
+ * List a document-library folder. Lets us resolve a file by pattern instead of
+ * guessing its exact name — spaces, capitalisation and "(1)" suffixes in
+ * hand-managed libraries make exact paths brittle.
+ * @returns {Promise<Array<{name: string, url: string}>>} empty on failure
+ */
+export async function spListFolderFiles(folderServerRelativeUrl) {
+  const lit = String(folderServerRelativeUrl).replace(/'/g, "''");
+  const path =
+    `/web/GetFolderByServerRelativePath(decodedurl='${encodeURIComponent(lit)}')` +
+    `/Files?$select=Name,ServerRelativeUrl,TimeLastModified&$top=500`;
+  try {
+    const d = await spGet(path);
+    return (d.value || []).map((f) => ({
+      name: f.Name,
+      url: f.ServerRelativeUrl,
+      modified: f.TimeLastModified || null,
+    }));
+  } catch (e) {
+    log.debug("FOLDER", `${folderServerRelativeUrl}: ${e && e.message}`);
+    return [];
+  }
+}
+
+/**
  * File metadata (server-side, so it reflects the LIVE file rather than any
  * synced copy). Used to show when the shipper workbook was last edited, so a
  * stale list is visible instead of silent. Best-effort: returns null on failure.

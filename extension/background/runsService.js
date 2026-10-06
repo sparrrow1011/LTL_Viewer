@@ -15,7 +15,14 @@
  */
 
 import * as store from "./sharepointStore.js";
-import { spGetFileText, spGetFileBytes, spGetFileInfo, spSearchFilePaths, SpError } from "./spClient.js";
+import {
+  spGetFileText,
+  spGetFileBytes,
+  spGetFileInfo,
+  spListFolderFiles,
+  spSearchFilePaths,
+  SpError,
+} from "./spClient.js";
 import { readSheet, base64ToBytes } from "./xlsx.js";
 import * as fmcClient from "./fmcClient.js";
 import { log } from "./debug.js";
@@ -600,6 +607,7 @@ async function _setOverride(team, value) {
 async function _shippersFromWorkbook(team, wb) {
   const cols = wb.columns || { shipperid: "B", shippername: "C", shipper_group: "L" };
   const tried = new Set();
+  const failures = []; // why each candidate didn't work — surfaced in the UI
   const candidates = [...(wb.paths || [])];
 
   const attempt = async (path) => {
@@ -610,7 +618,11 @@ async function _shippersFromWorkbook(team, wb) {
       b64 = await spGetFileBytes(path);
     } catch (e) {
       if (e instanceof SpError && (e.expired || e.denied)) throw e;
-      log.debug("shippers", `workbook ${path}: ${e && e.message}`);
+      // warn, not debug: a silent fallback to the CSV looked like the workbook
+      // was simply being ignored.
+      const why = `${e && e.status ? `HTTP ${e.status}` : ""} ${(e && e.message) || e}`.trim();
+      log.warn("shippers", `workbook ${path}: ${why}`);
+      failures.push(`${path} → ${why}`);
       return null;
     }
     const { rows, sheets, part } = await readSheet(base64ToBytes(b64), wb.sheet || "Shippers");
@@ -627,6 +639,7 @@ async function _shippersFromWorkbook(team, wb) {
     const count = Object.keys(shippers).length;
     if (!count) {
       log.warn("shippers", `workbook ${path}: parsed 0 valid shippers — wrong columns?`);
+      failures.push(`${path} → parsed 0 shippers (columns ${JSON.stringify(cols)}?)`);
       return null;
     }
     // When the LIVE file was last edited — the thing that makes "is this list
@@ -639,13 +652,47 @@ async function _shippersFromWorkbook(team, wb) {
     const hit = await attempt(p);
     if (hit) return hit;
   }
+
+  // Resolve by listing the folder and matching on name. Exact paths are
+  // brittle in a hand-managed library (capitalisation, double spaces, "(1)"
+  // copies), and this also tells us what IS in there when nothing matches.
+  for (const folder of wb.folders || []) {
+    const files = await spListFolderFiles(folder);
+    if (!files.length) {
+      log.warn("shippers", `workbook folder not listable: ${folder}`);
+      failures.push(`${folder} → folder not listable (wrong path, or no access)`);
+      continue;
+    }
+    const re = wb.match ? new RegExp(wb.match, "i") : /source\s*of\s*truth.*\.xlsx$/i;
+    const matches = files.filter((f) => re.test(f.name));
+    log.info(
+      "shippers",
+      `folder ${folder}: ${files.length} file(s), ${matches.length} matching ${re} ` +
+        `[${files.slice(0, 12).map((f) => f.name).join(", ")}]`
+    );
+    if (!matches.length) {
+      failures.push(
+        `${folder} → no file matching ${re}. Found: ${files.slice(0, 10).map((f) => f.name).join(", ")}`
+      );
+      continue;
+    }
+    // Newest first, so a "2026" copy beats an older one.
+    matches.sort((a, b) => String(b.modified || "").localeCompare(String(a.modified || "")));
+    for (const f of matches) {
+      const hit = await attempt(f.url);
+      if (hit) return hit;
+    }
+  }
+
   if (wb.file) {
     for (const p of await spSearchFilePaths(wb.file)) {
       const hit = await attempt(p);
       if (hit) return hit;
     }
   }
-  return null;
+  const err = new Error(failures.join(" | ") || "no candidate path resolved");
+  err.workbookFailures = failures;
+  throw err;
 }
 
 /**
@@ -728,6 +775,7 @@ export async function getShippers(team, { force = false, useFile = false } = {})
 
   // 1. The workbook itself — no dependency on update_shippers.py having run.
   const wb = override === "list" ? null : cfg.shipperWorkbook;
+  let workbookError = null;
   if (wb) {
     try {
       const hit = await _shippersFromWorkbook(cfg.key, wb);
@@ -738,12 +786,13 @@ export async function getShippers(team, { force = false, useFile = false } = {})
           `${cfg.key}: ${hit.count} from workbook ${hit.path}` +
             (hit.modified ? ` (last edited ${hit.modified})` : "")
         );
-      } else {
-        log.warn("shippers", `${cfg.key}: workbook not readable — falling back to the published CSV`);
       }
     } catch (e) {
       if (e instanceof SpError && (e.expired || e.denied)) throw e;
-      log.warn("shippers", `${cfg.key}: workbook read failed (${e && e.message}) — falling back to CSV`);
+      // Carried into the result so the Shippers dialog can say WHY it fell
+      // back, instead of just quietly showing the CSV.
+      workbookError = String((e && e.message) || e);
+      log.warn("shippers", `${cfg.key}: workbook unreadable — falling back to CSV. ${workbookError}`);
     }
   }
 
@@ -779,6 +828,7 @@ export async function getShippers(team, { force = false, useFile = false } = {})
   if (!result) result = { shippers: {}, source: "none", path: null };
   result.count = Object.keys(result.shippers).length;
   result.fetchedAt = Date.now();
+  if (workbookError) result.workbookError = workbookError;
   _shipperCache.set(cfg.key, result);
   return result;
 }
