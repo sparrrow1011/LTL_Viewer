@@ -117,6 +117,28 @@ async function ensureSpTab() {
   return tab;
 }
 
+/** Reload the SharePoint tab so the current content script is injected. */
+async function reloadSpTab() {
+  const tab = await findSpTab();
+  if (!tab) return false;
+  await browser.tabs.reload(tab.id);
+  await new Promise((resolve) => {
+    const listener = (tabId, info) => {
+      if (tabId === tab.id && info.status === "complete") {
+        browser.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    browser.tabs.onUpdated.addListener(listener);
+    setTimeout(() => {
+      browser.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 20_000);
+  });
+  await new Promise((r) => setTimeout(r, 800)); // let the bridge register
+  return true;
+}
+
 /** Send one REST op to the bridge; returns the bridge's { ok, status, data, body }. */
 async function bridgeRequest({ method = "GET", path, body = null, etag = "*", raw = false, probe = null }) {
   const tab = await ensureSpTab();
@@ -299,17 +321,44 @@ export async function spGetFileBytes(serverRelativeUrl) {
   const apiPath = `/web/GetFileByServerRelativePath(decodedurl='${encodeURIComponent(lit)}')/$value`;
   log.debug("FILE(bytes)", rel);
   let r = await bridgeRequest({ method: "GET", path: apiPath, raw: "bytes" });
-  log.debug("FILE(bytes)", `api → HTTP ${r.status}`, rel);
-  if (r.ok) return r.data; // base64
+  // A tab opened before the add-on updated answers with the old script, which
+  // has no "bytes" mode. Reload it once and retry rather than making the user
+  // work that out.
+  if (r.ok && r.encoding !== "base64") {
+    log.warn("sp", "bridge has no bytes mode (stale content script) — reloading the SharePoint tab");
+    if (await reloadSpTab()) {
+      r = await bridgeRequest({ method: "GET", path: apiPath, raw: "bytes" });
+      log.info("sp", `after reload: encoding=${r.encoding || "none"}`);
+    }
+  }
+  log.debug("FILE(bytes)", `api → HTTP ${r.status} (encoding=${r.encoding || "none"})`, rel);
+  if (r.ok) return assertBase64(r, rel); // base64
   if (r.status === 401 || r.status === 403 || r.expired || r.denied) {
     throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body, r);
   }
   // Direct download URL — resolves files on any site of the tenant.
   const direct = `${Config.SP_ORIGIN}${rel.split("/").map(encodeURIComponent).join("/")}?download=1`;
   r = await bridgeRequest({ method: "GET", path: direct, raw: "bytes" });
-  log.debug("FILE(bytes)", `direct → HTTP ${r.status}`, rel);
+  log.debug("FILE(bytes)", `direct → HTTP ${r.status} (encoding=${r.encoding || "none"})`, rel);
   if (!r.ok) throw new SpError(`GET file ${rel} → HTTP ${r.status}`, r.status, r.body, r);
-  return r.data;
+  return assertBase64(r, rel);
+}
+
+/**
+ * Guard against a STALE bridge. A SharePoint tab opened before the add-on
+ * updated keeps running the old content script, which has no "bytes" mode — it
+ * treats the flag as plain `raw` and hands back decoded text. That text then
+ * fails to base64-decode somewhere less obvious, so catch it here and say what
+ * to do about it.
+ */
+function assertBase64(r, rel) {
+  if (r.encoding === "base64" && typeof r.data === "string") return r.data;
+  throw new SpError(
+    `The SharePoint tab is running an older version of this add-on, so it can't read ` +
+      `binary files yet. Close or reload the SharePoint tab and retry (${rel}).`,
+    0,
+    `expected base64, got encoding=${r.encoding || "none"} type=${typeof r.data}`
+  );
 }
 
 /**

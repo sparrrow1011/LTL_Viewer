@@ -169,12 +169,20 @@
       return { ok: false, status: res.status, body: (await safeText(res)) || "", data: null };
     }
     const buf = new Uint8Array(await res.arrayBuffer());
-    let bin = "";
-    const CHUNK = 0x8000; // avoid blowing the argument limit on big files
-    for (let i = 0; i < buf.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+    try {
+      let bin = "";
+      const CHUNK = 0x8000; // keep String.fromCharCode's argument count sane
+      for (let i = 0; i < buf.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+      }
+      return { ok: true, status: res.status, body: null, data: btoa(bin), encoding: "base64" };
+    } catch (e) {
+      // Encoding failure would otherwise surface as a bare "HTTP 0".
+      const err = new Error(`couldn't base64-encode ${buf.length} bytes: ${e && e.message}`);
+      err.status = 0;
+      err.body = `bytes=${buf.length} content-type=${ctype || "none"}`;
+      throw err;
     }
-    return { ok: true, status: res.status, body: null, data: btoa(bin), encoding: "base64" };
   }
 
   async function doGetRaw(path) {

@@ -620,7 +620,15 @@ async function _shippersFromWorkbook(team, wb) {
       if (e instanceof SpError && (e.expired || e.denied)) throw e;
       // warn, not debug: a silent fallback to the CSV looked like the workbook
       // was simply being ignored.
-      const why = `${e && e.status ? `HTTP ${e.status}` : ""} ${(e && e.message) || e}`.trim();
+      // Include .body — on a status-0 failure (exception before any response)
+      // that's the ONLY place the real cause lives.
+      const why = [
+        e && e.status ? `HTTP ${e.status}` : "",
+        (e && e.message) || String(e),
+        e && e.body ? `[${String(e.body).replace(/\s+/g, " ").slice(0, 200)}]` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       log.warn("shippers", `workbook ${path}: ${why}`);
       failures.push(`${path} → ${why}`);
       return null;
