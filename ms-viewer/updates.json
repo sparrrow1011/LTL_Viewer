@@ -3,15 +3,6 @@
     "ltl-viewer-overlay@internal": {
       "updates": [
         {
-          "version": "0.3.11",
-          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/ms-viewer-0.3.11.xpi",
-          "applications": {
-            "gecko": {
-              "strict_min_version": "115.0"
-            }
-          }
-        },
-        {
           "version": "0.3.12",
           "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/ms-viewer-0.3.12.xpi",
           "applications": {
@@ -86,6 +77,15 @@
         {
           "version": "0.3.20",
           "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/ms-viewer-0.3.20.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
+        },
+        {
+          "version": "0.3.21",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/ms-viewer/ms-viewer-0.3.21.xpi",
           "applications": {
             "gecko": {
               "strict_min_version": "115.0"
