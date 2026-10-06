@@ -168,19 +168,27 @@
     if (!res.ok) {
       return { ok: false, status: res.status, body: (await safeText(res)) || "", data: null };
     }
-    const buf = new Uint8Array(await res.arrayBuffer());
+    const blob = await res.blob();
     try {
-      let bin = "";
-      const CHUNK = 0x8000; // keep String.fromCharCode's argument count sane
-      for (let i = 0; i < buf.length; i += CHUNK) {
-        bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
-      }
-      return { ok: true, status: res.status, body: null, data: btoa(bin), encoding: "base64" };
+      // Let the browser do the base64: FileReader has no argument-count limit,
+      // unlike String.fromCharCode.apply over the buffer, which is what used to
+      // fail here on a ~100KB workbook and surfaced as a bare "HTTP 0".
+      const data = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => {
+          const s = String(fr.result || "");
+          const comma = s.indexOf(",");
+          if (comma < 0) reject(new Error("data URL had no payload"));
+          else resolve(s.slice(comma + 1));
+        };
+        fr.onerror = () => reject(fr.error || new Error("FileReader failed"));
+        fr.readAsDataURL(blob);
+      });
+      return { ok: true, status: res.status, body: null, data, encoding: "base64" };
     } catch (e) {
-      // Encoding failure would otherwise surface as a bare "HTTP 0".
-      const err = new Error(`couldn't base64-encode ${buf.length} bytes: ${e && e.message}`);
+      const err = new Error(`couldn't base64-encode ${blob.size} bytes: ${(e && e.message) || e}`);
       err.status = 0;
-      err.body = `bytes=${buf.length} content-type=${ctype || "none"}`;
+      err.body = `bytes=${blob.size} content-type=${ctype || "none"} error=${(e && e.message) || e}`;
       throw err;
     }
   }
@@ -271,7 +279,9 @@
           status: err.status || 0,
           expired: !!(err && err.expired),
           denied: !!(err && err.denied),
-          body: err.body || String(err && err.message ? err.message : err),
+          // Keep BOTH the structured detail and the thrown message — reporting
+        // only err.body previously hid the actual JS error behind "HTTP 0".
+        body: [err.body, err && err.message].filter(Boolean).join(" | ") || String(err),
           data: null,
         }));
     }
@@ -291,7 +301,9 @@
         status: err.status || 0,
         expired: !!(err && err.expired),
         denied: !!(err && err.denied),
-        body: err.body || String(err && err.message ? err.message : err),
+        // Keep BOTH the structured detail and the thrown message — reporting
+        // only err.body previously hid the actual JS error behind "HTTP 0".
+        body: [err.body, err && err.message].filter(Boolean).join(" | ") || String(err),
         data: null,
       }));
   });
