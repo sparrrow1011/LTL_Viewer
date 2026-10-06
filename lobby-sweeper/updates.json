@@ -3,15 +3,6 @@
     "lobby-sweeper@internal": {
       "updates": [
         {
-          "version": "0.2.8",
-          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/lobby-sweeper/lobby-sweeper-0.2.8.xpi",
-          "applications": {
-            "gecko": {
-              "strict_min_version": "115.0"
-            }
-          }
-        },
-        {
           "version": "0.2.9",
           "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/lobby-sweeper/lobby-sweeper-0.2.9.xpi",
           "applications": {
@@ -86,6 +77,15 @@
         {
           "version": "0.2.17",
           "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/lobby-sweeper/lobby-sweeper-0.2.17.xpi",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "115.0"
+            }
+          }
+        },
+        {
+          "version": "0.2.18",
+          "update_link": "https://raw.githubusercontent.com/sparrrow1011/LTL_Viewer/updates/lobby-sweeper/lobby-sweeper-0.2.18.xpi",
           "applications": {
             "gecko": {
               "strict_min_version": "115.0"
