@@ -283,3 +283,18 @@ table.pg-lane-tbl td { padding: 3px 4px; border-bottom: 1px solid #f1f5f9; }
   color: #0f172a;
   background: #fff;
 }
+
+/* ── portal reminder banner ───────────────────────────────────────────────── */
+.pg-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: #fef2f2;
+  color: #991b1b;
+  border-bottom: 1px solid #fecaca;
+  font-size: 12.5px;
+  flex: 0 0 auto;
+}
+.pg-banner a.pg-link { color: #b91c1c; font-weight: 700; }

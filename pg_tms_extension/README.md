@@ -206,6 +206,11 @@ The grid also has a **Hide IDC** toggle (next to New only) that removes the
 IDC-site rows and leaves the rest, and the IDC tag now uses the PO's delivery FC
 so street-address rows flag IDC after Check.
 
+When the Procurement Portal session is needed but unavailable (expired on Check,
+or site access not yet granted), a red header banner appears with an **Open
+Procurement Portal** link; it clears once a portal check succeeds. Editing the
+delivery date/time re-adjusts the pickup by the transit time automatically.
+
 The toolbar **Filter** box narrows the loaded rows across all columns; space-
 separate terms and every term must match (e.g. `amiens 383`). The status line
 shows "showing X of Y". It filters the extension's own data — it does not call

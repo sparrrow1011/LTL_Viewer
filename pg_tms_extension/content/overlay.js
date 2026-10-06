@@ -323,6 +323,23 @@
     );
   }
 
+  // Header banner telling the user to open the Procurement Portal when its
+  // session is needed but unavailable (so the PP destination/window can't be
+  // read). Shows an "Open" link; cleared once a portal check succeeds.
+  const portalUrl = () => (cfg.portalTabUrl || "https://procurementportal-eu.corp.amazon.com/");
+  function showPortalBanner(reason) {
+    const b = $("#pg-portal-banner", root);
+    if (!b) return;
+    b.innerHTML =
+      `<span>⚠ Procurement Portal ${esc(reason || "session needed")} — PO destination &amp; window can't be verified.</span> ` +
+      `<a class="pg-link" href="${esc(portalUrl())}" target="_blank" rel="noopener">Open Procurement Portal to sign in</a>`;
+    b.style.display = "flex";
+  }
+  function hidePortalBanner() {
+    const b = $("#pg-portal-banner", root);
+    if (b) b.style.display = "none";
+  }
+
   // A one-line admin notice ("new version out", etc.) shown while enabled.
   function renderControlBanner() {
     const el = $("#pg-notice", root);
@@ -875,6 +892,7 @@
         setStatus(summary() + ` <span class="pg-muted pg-small">· checking ${poIds.length} PO(s) in the portal…</span>`, "ok");
         try {
           const pos = await call("poLookup", { poIds }, 120_000);
+          hidePortalBanner(); // portal reachable → clear any stale reminder
           for (const r of newLoads) {
             const p = pos[r.po] || pos[String(r.po).toUpperCase()];
             if (p) smc.po[r.loadId] = p;
@@ -889,11 +907,10 @@
           renderTable();
           setStatus(summary(), "ok");
         } catch (e) {
-          // Portal down/expired — keep the SMC result, just note it.
-          const note = e.expired
-            ? `Portal not checked (session expired) — Destination/PO Window are from TMS. <a class="pg-link" href="${esc(cfg.portalTabUrl || "https://procurementportal-eu.corp.amazon.com/")}" target="_blank" rel="noopener">Open the portal</a>`
-            : `Portal not checked (${esc(e.message)}) — Destination/PO Window are from TMS.`;
-          setStatus(summary() + ` <span class="pg-flag pg-warn">${note}</span>`, "");
+          // Portal down/expired — keep the SMC result. Put a persistent header
+          // banner up (with an Open link) so it's obvious the PP data is missing.
+          showPortalBanner(e.expired ? "session expired" : "not reachable (" + e.message + ")");
+          setStatus(summary() + ` <span class="pg-flag pg-warn">PO destination/window from TMS — portal not checked (see banner).</span>`, "");
         }
       }
     } catch (e) {
@@ -1201,6 +1218,10 @@
       setStatus("Reading the list…");
       await loadConfig();
       renderControlBanner();
+      // If the add-on has no site access to the portal yet, remind up front.
+      if (accessMissing.some((o) => /procurementportal/.test(o))) {
+        showPortalBanner("site access not granted — click the toolbar icon and accept");
+      }
       if (controlState && controlState.verdict && !controlState.verdict.allowed) {
         // Remotely disabled: show the message, don't read the list. Settings
         // stays reachable so the user can see their identity to report it.
@@ -1284,6 +1305,7 @@
         </div>
       </header>
       <div id="pg-notice" class="pg-notice" style="display:none"></div>
+      <div id="pg-portal-banner" class="pg-banner" style="display:none"></div>
       <div id="pg-status" class="pg-status" role="status" aria-live="polite"></div>
       <div class="pg-body">
         <main id="pg-results" class="pg-results"></main>
