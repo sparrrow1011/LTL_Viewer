@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MS Viewer",
-  "version": "0.3.24",
+  "version": "0.3.25",
   "description": "Manual Sourcing Viewer: full-page LTL/CST manual-sourcing table, outcomes dashboard and EML generation over SMC/FMC, backed by SharePoint.",
   "browser_specific_settings": {
     "gecko": {
@@ -22,7 +22,8 @@
   "host_permissions": [
     "https://smc-eu-dub.dub.proxy.amazon.com/*",
     "https://amazongbr.sharepoint.com/*",
-    "https://trans-logistics-eu.amazon.com/*"
+    "https://trans-logistics-eu.amazon.com/*",
+    "https://procurementportal-eu.corp.amazon.com/*"
   ],
   "background": {
     "scripts": ["background/background.js"],
@@ -49,6 +50,11 @@
     {
       "matches": ["https://trans-logistics-eu.amazon.com/fmc/*"],
       "js": ["content/fmc-bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://procurementportal-eu.corp.amazon.com/*"],
+      "js": ["content/vendor-bridge.js"],
       "run_at": "document_idle"
     }
   ],

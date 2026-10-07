@@ -213,6 +213,16 @@ export const Config = {
       outcomeSweepDays: 30,
       retentionDays: 180,
       statusDefault: "PLANNED",
+      // Programme shipper accounts whose rows all carry the same placeholder
+      // name. For these, resolve the real vendor from the order's VENDOR_CODE
+      // via the Procurement Portal and show that instead, tagged `tag`.
+      // Orders with no VENDOR_CODE were created in SMC itself — nothing to
+      // resolve, so they keep the placeholder.
+      vendorLookup: {
+        shipperIds: ["6771301528"], // WePay_Program
+        tag: "WP",
+        tagTitle: "WePay — name resolved from the order's vendor code",
+      },
       eml: {
         to: "amazonfreight-eu-sourcing@amazon.com",
         cc: "amazonfreight-eu-sourcing@amazon.com",
@@ -220,6 +230,22 @@ export const Config = {
       },
     },
   },
+
+  // ── Procurement Portal (vendor code → vendor name) ────────────────────────
+  // Some shipper accounts are programmes rather than real shippers, so every
+  // run shows the same placeholder name (e.g. "WePay_Program") and the actual
+  // vendor is invisible. SMC carries a VENDOR_CODE on the order; the Portal
+  // translates that code into the vendor's name.
+  //
+  // Read-only, through a bridge on the Portal's own origin (its API needs that
+  // site's SSO session, same as SMC/FMC/SharePoint).
+  VENDOR_ORIGIN: "https://procurementportal-eu.corp.amazon.com",
+  VENDOR_API: "https://procurementportal-eu.corp.amazon.com/bp-api/vendor",
+  VENDOR_TAB_URL: "https://procurementportal-eu.corp.amazon.com/",
+  VENDOR_TAB_MATCH: "https://procurementportal-eu.corp.amazon.com/*",
+  // Vendor names effectively never change, so cache hard: one lookup per code
+  // per month rather than per order.
+  VENDOR_CACHE_DAYS: 30,
 
   // ── SMC (read source of the load list, via the SMC bridge) ────────────────
   // The UI is a standalone page; content/smc.js runs on an SMC tab and does

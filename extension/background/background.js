@@ -15,6 +15,7 @@ import * as runsService from "./runsService.js";
 import * as fmcClient from "./fmcClient.js";
 import * as spClient from "./spClient.js";
 import * as smcClient from "./smcClient.js";
+import * as vendorClient from "./vendorClient.js";
 import * as control from "./control.js";
 import * as usage from "./usage.js";
 import { log } from "./debug.js";
@@ -150,6 +151,11 @@ const HANDLERS = {
   // Direct lookup of order IDs / VRIDs (not limited to "needs sourcing"): { rows, found, missing }.
   smcLookup: (msg) => smcClient.lookupByIds(msg.ids || [], msg.win || {}, msg.opts || {}),
 
+  // ── Procurement Portal: vendor code → vendor name (cached ~30 days) ──
+  // Best-effort: unresolved codes come back in `missing` rather than throwing,
+  // so a signed-out Portal can't break a load.
+  vendorNames: (msg) => vendorClient.lookupVendors(msg.codes || [], { force: !!msg.force }),
+
   // Live FMC records ({ vrid: {status, carrier, tour, times, stop refs} }).
   fmcStatuses: (msg) => fmcClient.getFmcStatuses(msg.vrids || []),
   // FMC criteria search — the load-list SOURCE (accounts × carriers × window).
@@ -195,6 +201,10 @@ const HANDLERS = {
   },
   "smc:bridge-ready": (msg) => {
     log.info("smc", `bridge ready: ${msg.href}`);
+    return { ack: true };
+  },
+  "vendor:bridge-ready": (msg) => {
+    log.info("vendor", `bridge ready: ${msg.href}`);
     return { ack: true };
   },
 };

@@ -172,6 +172,14 @@
     return c ? String(c).trim().toUpperCase() : null;
   }
 
+  /** The order's VENDOR_CODE, if it has one (programme accounts only). */
+  function vendorCodeOf(order) {
+    const list = order.additionalReferenceIdList || [];
+    const hit = list.find((r) => r && String(r.type).toUpperCase() === "VENDOR_CODE");
+    const code = hit && (hit.id ?? hit.value ?? hit.referenceId);
+    return code == null ? null : String(code).trim() || null;
+  }
+
   // ── order -> one row per VRID ───────────────────────────────────────────────
   function orderToRows(order) {
     const stops = order.stops || [];
@@ -185,6 +193,11 @@
     const base = {
       orderid: String(order.orderIdentifier?.id ?? ""),
       shipperid: String(shipper.shipperId ?? "").trim(),
+      // Programme accounts (e.g. WePay) hide the real vendor behind one
+      // placeholder shipper name. The order carries the vendor's code here;
+      // the Procurement Portal turns it into a name (background/vendorClient).
+      // Absent on SMC-created orders, which simply have no vendor.
+      vendor_code: vendorCodeOf(order),
       shippername: shipper.shipperName,
       shipper_ref: order.shipperReferenceId,
       // sourcing signals (SMC has no RLB1/DUMMY/AZNG — "needs sourcing" = no carrier yet)

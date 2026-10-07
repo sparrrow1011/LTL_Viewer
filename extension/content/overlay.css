@@ -988,3 +988,8 @@ html[data-theme="dark"] .ltl-ship-foot { background: #171c25; border-top-color: 
   word-break: break-word;
 }
 html[data-theme="dark"] .ltl-ship-warn { background: #2a2410; border-bottom-color: #4b3a0f; color: #fde68a; }
+
+/* Vendor name resolved from a programme account's vendor code */
+td.ltl-vendor-cell { display: flex; align-items: center; gap: 6px; }
+.ltl-vendor-unresolved { color: #94a3b8; font-style: italic; }
+html[data-theme="dark"] .ltl-vendor-unresolved { color: #64748b; }

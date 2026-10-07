@@ -1014,6 +1014,61 @@
     for (const r of state.rows) r.mile = "FM";
   }
 
+  // ── vendor names (programme shipper accounts) ──────────────────────────────
+  // A programme account like WePay shows one placeholder shipper name on every
+  // run, so the actual vendor is invisible. The order carries a VENDOR_CODE;
+  // the Procurement Portal turns it into a name. Best-effort: if the Portal is
+  // unreachable the row keeps the code, which is still identifiable.
+  function vendorRowsOf(rows) {
+    const cfg = teamCfg && teamCfg.vendorLookup;
+    if (!cfg) return [];
+    const ids = new Set((cfg.shipperIds || []).map(String));
+    return rows.filter((r) => ids.has(String(r.shipperid ?? "").trim()));
+  }
+
+  async function resolveVendorNames(rows) {
+    const cfg = teamCfg && teamCfg.vendorLookup;
+    const targets = vendorRowsOf(rows);
+    if (!targets.length) return 0;
+
+    // Tag every programme row, resolved or not — the tag says WHY the name
+    // differs from the shipper account.
+    for (const r of targets) r.vendor_tag = cfg.tag || "WP";
+
+    const codes = [...new Set(targets.map((r) => r.vendor_code).filter(Boolean))];
+    if (!codes.length) {
+      // No VENDOR_CODE at all = created in SMC itself; nothing to resolve.
+      dlog(`vendor: ${targets.length} programme row(s), none carry a vendor code`);
+      return 0;
+    }
+    let res;
+    try {
+      res = await msg("vendorNames", { codes });
+    } catch (e) {
+      dlog(`vendor lookup skipped: ${e.message}`);
+      return 0;
+    }
+    const names = (res && res.names) || {};
+    let applied = 0;
+    for (const r of targets) {
+      const name = r.vendor_code ? names[r.vendor_code] : null;
+      if (name) {
+        r.vendor_name = name;
+        // Keep the programme account visible on hover; show the vendor.
+        r.shipper_account_name = r.shippername;
+        r.shippername = name;
+        applied += 1;
+      } else if (r.vendor_code) {
+        r.vendor_unresolved = true;
+      }
+    }
+    console.info(
+      `[LTL overlay] vendor names: ${applied}/${targets.length} resolved from ${codes.length} code(s)` +
+        (res && res.missing && res.missing.length ? `, unresolved: ${res.missing.slice(0, 5).join(", ")}` : "")
+    );
+    return applied;
+  }
+
   async function fetchData() {
     if (!teamCfg) {
       showTeamPicker();
@@ -1134,6 +1189,10 @@
         await loadFromSmc();
       }
       if (state.rows === null) return; // a load step showed the blocker and aborted
+
+      // Programme accounts (WePay): swap the placeholder shipper name for the
+      // real vendor. Best-effort — a signed-out Portal must not fail the load.
+      await resolveVendorNames(state.rows);
 
       // SharePoint annotations (manual-source / email state) merged on top.
       Loader.start("records", "reading manual-source + email state…");
@@ -1456,6 +1515,31 @@
               }),
             ])
           );
+        } else if (col === "shippername" && row.vendor_tag) {
+          // Programme account (e.g. WePay): show the vendor, tagged, with the
+          // programme account itself on hover. Unresolved codes show the code
+          // rather than the placeholder, so the row is still identifiable.
+          const td = el("td", { class: "ltl-vendor-cell" });
+          td.appendChild(
+            el("span", {
+              class: "ltl-badge ltl-badge-purple",
+              text: row.vendor_tag,
+              title: (teamCfg.vendorLookup && teamCfg.vendorLookup.tagTitle) || "Vendor resolved from the order's vendor code",
+            })
+          );
+          const resolved = !!row.vendor_name;
+          td.appendChild(
+            el("span", {
+              class: resolved ? "" : "ltl-vendor-unresolved",
+              text: resolved ? row.vendor_name : row.vendor_code || raw,
+              title: resolved
+                ? `Vendor ${row.vendor_code || ""} · shipper account ${row.shipper_account_name || ""}`.trim()
+                : row.vendor_code
+                  ? `Vendor code ${row.vendor_code} — name not resolved (Procurement Portal unavailable or signed out)`
+                  : "No vendor code on this order (created in SMC)",
+            })
+          );
+          tr.appendChild(td);
         } else if (LINKS[col] && raw.trim() !== "") {
           const a = el("a", {
             href: LINKS[col](raw),
