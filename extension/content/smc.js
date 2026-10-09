@@ -455,6 +455,42 @@
     return { rows, found, missing, source, outsideShippers, ...(unscopedError ? { unscopedError } : {}) };
   }
 
+  /** The raw order behind one of `ids`, from the most recent fetch. */
+  function rawOrderFor(ids) {
+    const want = new Set(ids.map(String));
+    return (
+      __lastRawOrders.find(
+        (o) =>
+          want.has(String(o.orderIdentifier?.id ?? "")) ||
+          (o.vehicleRunIds || []).some((v) => want.has(String(v)))
+      ) || null
+    );
+  }
+
+  /**
+   * Every date-looking value on an order, by path — ISO strings and epoch
+   * milliseconds alike, rendered as ISO so they can be compared with the
+   * window directly. Used to find which date SMC's originDateRange filters on.
+   */
+  function dateFieldsOf(obj, path = "", out = {}, depth = 0) {
+    if (!obj || depth > 3) return out;
+    for (const [k, v] of Object.entries(obj)) {
+      const p = path ? `${path}.${k}` : k;
+      if (v == null) continue;
+      if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) out[p] = v;
+      // Plausible epoch-ms window (2001..2286), and only for date-ish names, so
+      // ids and prices don't show up as dates.
+      else if (typeof v === "number" && v > 1e12 && v < 1e13 && /date|time|at$|on$/i.test(k)) {
+        out[p] = new Date(v).toISOString();
+      } else if (Array.isArray(v)) {
+        v.slice(0, 4).forEach((item, i) => {
+          if (item && typeof item === "object") dateFieldsOf(item, `${p}[${i}]`, out, depth + 1);
+        });
+      } else if (typeof v === "object") dateFieldsOf(v, p, out, depth + 1);
+    }
+    return out;
+  }
+
   /**
    * Dry run: why is this order/VRID not on the sourcing list?
    *
@@ -499,6 +535,36 @@
       }
     }
 
+    // 3. STILL not returned? The by-ID lookup finds these runs with the same
+    // query over a wider window, which means `originDateRange` filters on some
+    // date other than the stop time we display. Re-run widened and, if it turns
+    // up, dump every date on the raw order so the field that disagrees with the
+    // window is identifiable instead of guessed at.
+    let wider = null;
+    if (!hits.length) {
+      const pad = 14 * 86_400_000;
+      const w = {
+        start: new Date(Date.parse(start) - pad).toISOString(),
+        end: new Date(Date.parse(end) + pad).toISOString(),
+      };
+      try {
+        const widened = await fetchRows(w, { query: opts.query, shipperIds: opts.shipperIds, pageSize: 200 });
+        const widenedHits = widened.filter(isWanted);
+        wider = {
+          window: w,
+          meta: { ...__lastMeta },
+          found: widenedHits.length > 0,
+          // Raw order dates: whichever of these sits outside the toolbar window
+          // is the one SMC filtered on.
+          orderDates: widenedHits.length ? dateFieldsOf(rawOrderFor(wanted)) : null,
+          row: widenedHits[0] || null,
+        };
+        if (widenedHits.length) hits = widenedHits;
+      } catch (e) {
+        wider = { error: String((e && e.message) || e) };
+      }
+    }
+
     const reports = wanted.map((id) => {
       const row = hits.find(
         (r) => String(r.orderid ?? "").trim() === id || String(r.vrid ?? "").trim() === id
@@ -527,6 +593,31 @@
       const failed = Object.entries(gates)
         .filter(([, ok]) => !ok)
         .map(([k]) => k);
+      // Only turned up once the window was widened: the run exists and matches
+      // the query, so the toolbar window is what excluded it — and because the
+      // stop time we display IS inside that window, the date SMC filtered on
+      // must be a different field. widerWindow.orderDates shows which.
+      const onlyWider = !!(wider && wider.found);
+      if (onlyWider) {
+        return {
+          id,
+          found: true,
+          foundOnlyInWiderWindow: true,
+          order: {
+            orderid: row.orderid,
+            vrid: row.vrid,
+            shipperid: row.shipperid,
+            freight_type: row.freight_type,
+            orig_planned_yard_checkin_time: row.orig_planned_yard_checkin_time,
+            dest_planned_yard_checkin_time: row.dest_planned_yard_checkin_time,
+          },
+          verdict:
+            `SMC returned it only for a WIDER window (±14d), with the same query — so the toolbar ` +
+            `window excluded it even though its displayed check-in is inside that window. ` +
+            `originDateRange must filter on a different date: compare widerWindow.orderDates ` +
+            `against window ${start} → ${end}.`,
+        };
+      }
       return {
         id,
         found: true,
@@ -559,6 +650,7 @@
       scopedFetch: scopedMeta,
       unscopedFetch: unscopedMeta,
       unscopedError,
+      widerWindow: wider,
       reports,
     };
   }

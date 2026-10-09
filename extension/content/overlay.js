@@ -1544,6 +1544,29 @@
       if (report.unscopedError) {
         console.warn(`the re-run without the allow-list failed: ${report.unscopedError}`);
       }
+      const w = report.widerWindow;
+      if (w && w.found) {
+        console.warn(
+          `found only with a WIDER window (${w.window.start} → ${w.window.end}), same query — ` +
+            `so the toolbar window is what excluded it`
+        );
+        console.info(`every date on the raw order — the one outside your window is the one SMC filters on:`);
+        console.table(
+          Object.entries(w.orderDates || {})
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([field, value]) => ({
+              field,
+              value,
+              inToolbarWindow:
+                Date.parse(value) >= Date.parse(report.window.start) &&
+                Date.parse(value) <= Date.parse(report.window.end),
+            }))
+        );
+      } else if (w && w.error) {
+        console.warn(`the wider-window re-run failed: ${w.error}`);
+      } else if (w) {
+        console.info("not found even with a ±14d window — the query itself excludes it (sources / freight / statuses)");
+      }
     }
 
     // FMC decides the final carrier gate for CST, so ask it directly.

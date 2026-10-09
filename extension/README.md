@@ -485,6 +485,12 @@ the team's real sourcing query rather than re-implementing it. It prints:
 - for CST, live FMC for that VRID and whether the carrier gate passes
 - when every gate passes, it says so and points at the remaining suspects (the
   truncated fetch, or the toolbar's own filters)
+- if SMC still doesn't return it, a third run widens the window to ±14 days
+  with the same query. A hit there means the **window** excluded it, so the
+  report dumps every date on the raw order with an `inToolbarWindow` column —
+  the one outside the window is the field `originDateRange` really filters on,
+  which need not be the stop time the table displays. No hit there means the
+  query itself (sources / freight types / statuses) excludes it.
 
 Read-only — it only issues the same searches a load does.
 
