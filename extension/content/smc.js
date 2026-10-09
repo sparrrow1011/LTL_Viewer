@@ -36,6 +36,9 @@
   // records than MAX_PAGES could reach — the caller must not treat the result as
   // the complete population (the HC calculator would silently under-count).
   let __lastMeta = { total: 0, fetched: 0, pages: 0, truncated: false };
+  // What the sourcing filter discarded on the last run, by rule (see
+  // filterSourcing). Reported alongside `meta` so a load can explain its count.
+  let __lastDrops = { in: 0, kept: 0, noVrid: 0, hasCarrier: 0, freightType: {} };
 
   function dlog(...a) {
     if (window.__ltlDebug && window.__ltlDebug.status && window.__ltlDebug.status.call)
@@ -315,12 +318,30 @@
   function filterSourcing(rows, sourcing = DEFAULT_SOURCING) {
     const s = { ...DEFAULT_SOURCING, ...(sourcing || {}) };
     const excluded = new Set((s.excludeFreightTypes || []).map((v) => String(v).toUpperCase()));
-    return rows.filter((r) => {
-      if (s.requireVrid && String(r.vrid ?? "").trim() === "") return false;
-      if (s.requireNoCarrier && r.has_carrier) return false;
-      if (excluded.size && excluded.has(String(r.freight_type ?? "").toUpperCase())) return false;
+    // Account for what this filter throws away. Without it, "SMC returned 2,000
+    // orders, the list shows 403" gives no clue which rule ate the difference,
+    // and every missing-run question turns into a guessing exercise.
+    const drops = { in: rows.length, noVrid: 0, hasCarrier: 0, freightType: {} };
+    const kept = rows.filter((r) => {
+      if (s.requireVrid && String(r.vrid ?? "").trim() === "") {
+        drops.noVrid += 1;
+        return false;
+      }
+      if (s.requireNoCarrier && r.has_carrier) {
+        drops.hasCarrier += 1;
+        return false;
+      }
+      const ft = String(r.freight_type ?? "").toUpperCase();
+      if (excluded.size && excluded.has(ft)) {
+        const k = r.freight_type || "(none)";
+        drops.freightType[k] = (drops.freightType[k] || 0) + 1;
+        return false;
+      }
       return true;
     });
+    drops.kept = kept.length;
+    __lastDrops = drops;
+    return kept;
   }
 
   /**
@@ -627,7 +648,7 @@
     }
     if (msg.action === "smc:sourcingRows") {
       return fetchSourcingRows(msg.win || {}, msg.opts || {})
-        .then((rows) => ({ bridge: true, ok: true, rows, meta: { ...__lastMeta } }))
+        .then((rows) => ({ bridge: true, ok: true, rows, meta: { ...__lastMeta, drops: { ...__lastDrops } } }))
         .catch((err) => {
           // A 200 that isn't JSON / a redirect means the session lapsed.
           if (/HTTP (401|403)|redirected|Unexpected token/i.test(String(err && err.message))) {

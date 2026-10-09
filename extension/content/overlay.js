@@ -1044,6 +1044,19 @@
       `${smcRows.length} order row${smcRows.length === 1 ? "" : "s"} with a VRID and no SMC carrier` +
         (state.smcTruncated ? ` — INCOMPLETE: only ${state.smcTruncated.fetched} of ${state.smcTruncated.total} orders read` : "")
     );
+    // Where the orders went. "SMC returned N, the list shows M" is otherwise
+    // unexplainable without a dry run.
+    const drops = smcMeta && smcMeta.drops;
+    if (drops) {
+      const ft = Object.entries(drops.freightType || {});
+      console.info(
+        `[LTL overlay] SMC: ${smcMeta.fetched} order(s) fetched → ${drops.in} row(s) by VRID → ` +
+          `${drops.kept} kept for sourcing. Dropped: no VRID ${drops.noVrid}, ` +
+          `SMC carrier already set ${drops.hasCarrier}` +
+          (ft.length ? `, excluded freight type ${ft.map(([k, n]) => `${k} ${n}`).join(" / ")}` : "") +
+          `.`
+      );
+    }
 
     // Validate on FMC WHILE STILL LOADING (before showing the table).
     // Blocking: the table is only rendered once every load has been checked

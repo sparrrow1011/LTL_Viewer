@@ -162,6 +162,11 @@ by *Clear*). Without it the placeholder chips silently hid carrier-less runs,
 which is how WePay runs went missing. Deselect it to hide them; that choice
 then sticks.
 
+A CST load also logs where the orders went: `SMC: N order(s) fetched → N row(s)
+by VRID → M kept for sourcing. Dropped: no VRID x, SMC carrier already set y,
+excluded freight type LESS_THAN_TRUCKLOAD z.` So "SMC had thousands and the list
+shows 400" names the rule responsible instead of needing a dry run.
+
 Both paths log to the console (`[LTL overlay] FMC search: …`, `tagged N FM /
 M MM`, `Carrier breakdown: …`) so an unexpected count can be traced to what
 FMC/SMC actually returned.
