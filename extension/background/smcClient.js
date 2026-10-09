@@ -35,7 +35,23 @@ export async function fetchSourcingRows(win, opts = {}) {
  */
 export async function lookupByIds(ids, win, opts = {}) {
   const resp = await bridge.call({ action: "smc:lookup", ids, win, opts });
-  return { rows: resp.rows || [], found: resp.found || [], missing: resp.missing || [], source: resp.source };
+  return {
+    rows: resp.rows || [],
+    found: resp.found || [],
+    missing: resp.missing || [],
+    source: resp.source,
+    outsideShippers: resp.outsideShippers || [],
+  };
+}
+
+/**
+ * Dry run for "why isn't this run on the sourcing list?". Replays the team's
+ * real sourcing query and reports each gate instead of only the survivors.
+ * @returns {Promise<object>} see diagnoseIds in content/smc.js
+ */
+export async function diagnose(ids, win, opts = {}) {
+  const resp = await bridge.call({ action: "smc:diagnose", ids, win, opts });
+  return resp.report || null;
 }
 
 /** Signed-in SMC alias (used for manual_source_by / email_sent_by). */

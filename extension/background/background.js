@@ -150,6 +150,10 @@ const HANDLERS = {
   smcRequester: async () => ({ requester: await smcClient.getRequester() }),
   // Direct lookup of order IDs / VRIDs (not limited to "needs sourcing"): { rows, found, missing }.
   smcLookup: (msg) => smcClient.lookupByIds(msg.ids || [], msg.win || {}, msg.opts || {}),
+  // Dry run: why isn't this order/VRID on the sourcing list? { report }.
+  smcDiagnose: async (msg) => ({
+    report: await smcClient.diagnose(msg.ids || [], msg.win || {}, msg.opts || {}),
+  }),
 
   // ── Procurement Portal: vendor code → vendor name (cached ~30 days) ──
   // Best-effort: unresolved codes come back in `missing` rather than throwing,

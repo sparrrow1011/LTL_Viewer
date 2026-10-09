@@ -139,6 +139,15 @@ The table leads with the FM/MM badge, the shipper account and the **CR ID**
 key). All three are stored on the SharePoint record and included in the
 Dashboard CSV, so the Dashboard can split by them.
 
+**The SMC paging ceiling.** A fetch reads at most `PAGE_SIZE × MAX_PAGES`
+orders. That was 25 × 100 = **2,500**, which CST exceeds on a normal day, so
+orders past the cap were dropped and runs that needed sourcing never reached
+the list — while the by-ID lookup found them, because it already asked for 200
+a page. Page size is now **200**, lifting the ceiling to 20,000. If a window
+still exceeds it, the load says so: a red toast plus *INCOMPLETE: only N of M
+orders read* on the SMC step, instead of the silent console warning it used to
+be. Narrow the window and reload.
+
 **CST (SMC-sourced).** SMC is fetched, then **while still loading** every VRID
 is validated on FMC (execution status / carrier / tour / yard times overwrite
 SMC's). "Needs sourcing" is decided by **FMC's `vehicle_carrier`**: kept only
@@ -292,6 +301,15 @@ are flagged and the bar names the shipper ID they belong to, so the fix (add it
 to the Source of Truth, or to `extraShippers`) is obvious instead of looking
 like a missing run.
 
+**Why isn't it on the sourcing list?** A looked-up run states its own reason,
+in the bar and on its `SMC` badge: no VRID, SMC already shows a carrier, the
+freight type is excluded for the team, FMC reports a real carrier (covered),
+the planned check-in is outside the loaded window, or the fetch hit its paging
+cap. The checks mirror the list's own rules in the same order, so they can't
+drift from the real behaviour. A run showing a `DUMMY` carrier looks like it
+obviously belongs on the list, and before this there was no way to tell which
+rule had excluded it.
+
 ### Exporting past data (history)
 
 Manual Sourcing's *Download CSV* only covers loads currently in the sourcing
@@ -426,6 +444,33 @@ the overlay's **Debug** button, or in either console: `__ltlDebug.enable()` /
 body, so failed SharePoint calls show exactly what was rejected. The overlay's
 page console shows `[LTL smc]` (fetch) and `[LTL overlay]` (message) traces; the
 **background** console shows the SharePoint request/response traces.
+
+### Dry run: why isn't this run on the sourcing list?
+
+In the MS Viewer page console:
+
+```js
+__ltlDiag.why("1155LWQWX")          // order ID or VRID
+__ltlDiag.why("1155LWQWX", "114193VF6")
+```
+
+It uses the **current team and the window as the toolbar has it**, and replays
+the team's real sourcing query rather than re-implementing it. It prints:
+
+- the window actually sent, and the SMC paging outcome (`N of M orders`, and a
+  TRUNCATED warning if the list can't be complete)
+- the order as SMC returned it: shipper id, freight type, SMC carrier, planned
+  check-in, statuses
+- each gate separately — `returnedBySmc`, `shipperInAllowList`, `hasVrid`,
+  `noSmcCarrier`, `freightTypeAllowed` — so you see which one failed
+- if SMC didn't return it inside the allow-list, it re-runs the query without
+  the allow-list to separate "doesn't exist in this window" from "belongs to a
+  shipper this team isn't scoped to"
+- for CST, live FMC for that VRID and whether the carrier gate passes
+- when every gate passes, it says so and points at the remaining suspects (the
+  truncated fetch, or the toolbar's own filters)
+
+Read-only — it only issues the same searches a load does.
 
 ## What's verified vs. what needs a live environment
 

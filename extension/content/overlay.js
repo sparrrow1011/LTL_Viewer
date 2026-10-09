@@ -99,6 +99,9 @@
     disable() { dbg.enabled = false; console.info("[LTL overlay] debug disabled"); },
     status() { console.info(`[LTL overlay] debug ${dbg.enabled ? "ON" : "OFF"}`); return dbg.enabled; },
   };
+  // Dry run for "why isn't this run on the sourcing list?" — see diagnoseWhy.
+  //   __ltlDiag.why("1155LWQWX")
+  window.__ltlDiag = { why: (...a) => diagnoseWhy(...a) };
 
   // Logged-in user (SMC requester alias), auto-detected once and cached.
   let currentUser = null;
@@ -635,6 +638,21 @@
             `. Read-only: these aren't on the sourcing list and nothing is saved for them.`,
         })
       );
+      // Say WHY each one is off the list. Without this, a row showing a DUMMY
+      // carrier looks like it should obviously be there.
+      const reasons = {};
+      for (const r of state.lookup) {
+        const why = r._not_sourcing_reason;
+        if (why) reasons[why] = (reasons[why] || 0) + 1;
+      }
+      const reasonBits = Object.entries(reasons).map(([why, n]) =>
+        state.lookup.length > 1 ? `${why} (${n})` : why
+      );
+      if (reasonBits.length) {
+        bar.appendChild(
+          el("span", { class: "ltl-lookup-why", text: `Not on the list: ${reasonBits.join("; ")}.` })
+        );
+      }
       const back = el("button", { class: "ltl-btn ltl-gray", text: "← Back to sourcing list" });
       back.addEventListener("click", () => {
         state.search = "";
@@ -682,7 +700,10 @@
           dlog(`lookup records merge skipped: ${e.message}`);
         }
       }
-      for (const r of rows) r._lookup = true; // read-only display rows
+      for (const r of rows) {
+        r._lookup = true; // read-only display rows
+        r._not_sourcing_reason = notSourcingReason(r);
+      }
       state.lookup = rows;
       state.lookupInfo = {
         found: res.found,
@@ -851,6 +872,8 @@
 
   // ── LTL: FMC is the source, SMC enriches, rows tagged FM / MM ─────────────
   async function loadFromFmc() {
+    // LTL doesn't page SMC for its list, so any CST truncation flag is stale.
+    state.smcTruncated = null;
     const win = dateWindow();
     const fs = teamCfg.fmcSearch;
 
@@ -986,16 +1009,35 @@
   async function loadFromSmc() {
     Loader.start("smc", "fetching the team's orders…");
     let smcRows;
+    let smcMeta = null;
     try {
       // Through the background → SMC-tab bridge (this page can't fetch SMC).
-      ({ rows: smcRows } = await msg("smcSourcingRows", { win: dateWindow(), opts: smcOptions() }));
+      ({ rows: smcRows, meta: smcMeta } = await msg("smcSourcingRows", { win: dateWindow(), opts: smcOptions() }));
     } catch (e) {
       console.error("[LTL overlay] SMC fetch failed:", e);
       failStep("smc", e, ["SMC"]);
       return;
     }
     state.rows = smcRows;
-    Loader.done("smc", `${smcRows.length} order row${smcRows.length === 1 ? "" : "s"} with a VRID and no SMC carrier`);
+    // SMC had more orders than one fetch can page through, so the list is a
+    // SUBSET and runs that need sourcing are missing from it. That's a
+    // correctness problem, not a performance note — say so loudly rather than
+    // leaving it in the console, where it went unnoticed for months.
+    state.smcTruncated = smcMeta && smcMeta.truncated ? { fetched: smcMeta.fetched, total: smcMeta.total } : null;
+    if (state.smcTruncated) {
+      const { fetched, total } = state.smcTruncated;
+      console.warn(`[LTL overlay] SMC fetch truncated: ${fetched} of ${total} orders — the sourcing list is incomplete`);
+      toast(
+        `SMC has ${total} orders in this window but only ${fetched} could be read — the sourcing list is INCOMPLETE. ` +
+          `Narrow the window and reload.`,
+        "error"
+      );
+    }
+    Loader.done(
+      "smc",
+      `${smcRows.length} order row${smcRows.length === 1 ? "" : "s"} with a VRID and no SMC carrier` +
+        (state.smcTruncated ? ` — INCOMPLETE: only ${state.smcTruncated.fetched} of ${state.smcTruncated.total} orders read` : "")
+    );
 
     // Validate on FMC WHILE STILL LOADING (before showing the table).
     // Blocking: the table is only rendered once every load has been checked
@@ -1392,6 +1434,133 @@
     return changed;
   }
 
+  /**
+   * Why is this looked-up run NOT on the sourcing list?
+   *
+   * "Read-only, not on the sourcing list" was true but unhelpful — a run with a
+   * DUMMY carrier looks like it should obviously be there, and there was no way
+   * to tell which rule excluded it. Evaluates the same rules the list applies,
+   * in the order they're applied.
+   * @returns {string} short reason, "" when nothing excludes it
+   */
+  function notSourcingReason(r) {
+    const s = (teamCfg && teamCfg.sourcing) || {};
+    if (s.requireVrid && !String(r.vrid ?? "").trim()) return "no VRID assigned yet";
+    if (s.requireNoCarrier && r.has_carrier) return "SMC already shows a carrier";
+    const excluded = (s.excludeFreightTypes || []).map((v) => String(v).toUpperCase());
+    const ft = String(r.freight_type ?? "").toUpperCase();
+    if (ft && excluded.includes(ft)) {
+      return `freight type ${r.freight_type} is excluded for ${teamCfg.label}`;
+    }
+    if (!needsSourcingByFmcCarrier(r)) {
+      return `carrier ${r.vehicle_carrier} is a real carrier, so FMC treats it as covered`;
+    }
+    // Everything about the run says it needs sourcing — so it was the window.
+    const win = dateWindow();
+    const t = Date.parse(r.orig_planned_yard_checkin_time || "");
+    const ws = Date.parse(win.start || "");
+    const we = Date.parse(win.end || "");
+    if (!Number.isNaN(t) && !Number.isNaN(ws) && !Number.isNaN(we) && (t < ws || t > we)) {
+      return "its planned check-in is outside the loaded window — widen the dates and it will appear";
+    }
+    // Nothing about the run excludes it, and it IS in the window: the list is
+    // simply missing it because the fetch couldn't read that far.
+    if (state.smcTruncated) {
+      return (
+        `the SMC fetch hit its cap (${state.smcTruncated.fetched} of ${state.smcTruncated.total} orders read), ` +
+        `so this run was never fetched for the list — narrow the window and reload`
+      );
+    }
+    return "";
+  }
+
+  /**
+   * Dry run from the console: `__ltlDiag.why("1155LWQWX")`.
+   *
+   * Walks the full pipeline for one or more order IDs / VRIDs using the CURRENT
+   * team and window, and prints where it stopped. The SMC half is replayed by
+   * the bridge (content/smc.js diagnoseIds); the FMC half and the carrier gate
+   * are evaluated here, because that's where the list makes that decision.
+   *
+   * @returns {Promise<object>} the raw report, for inspection
+   */
+  async function diagnoseWhy(...ids) {
+    const flat = ids.flat().map((v) => String(v).trim()).filter(Boolean);
+    if (!teamCfg) {
+      console.warn("[LTL diag] pick a team first");
+      return null;
+    }
+    if (!flat.length) {
+      console.info('[LTL diag] usage: __ltlDiag.why("1155LWQWX") or __ltlDiag.why("vrid1","vrid2")');
+      return null;
+    }
+    const win = dateWindow();
+    console.group(`[LTL diag] ${teamCfg.label} · ${flat.join(", ")}`);
+    console.info(`window: ${win.start} → ${win.end}  (as the toolbar has it)`);
+
+    let report = null;
+    if (teamCfg.smcQuery) {
+      try {
+        ({ report } = await msg("smcDiagnose", { ids: flat, win, opts: smcOptions() }));
+      } catch (e) {
+        console.error(`SMC dry run failed: ${e.message}`);
+        console.groupEnd();
+        return null;
+      }
+      console.info(
+        `SMC fetch: ${report.scopedFetch.fetched} of ${report.scopedFetch.total} orders in ${report.scopedFetch.pages} page(s)` +
+          (report.scopedFetch.truncated ? "  ⚠ TRUNCATED — the list cannot be complete" : "")
+      );
+      console.info(`shipper allow-list: ${report.shipperAllowListSize} id(s)`);
+      if (report.unscopedFetch) {
+        console.info(
+          `re-ran without the allow-list: ${report.unscopedFetch.fetched} of ${report.unscopedFetch.total} orders`
+        );
+      }
+    }
+
+    // FMC decides the final carrier gate for CST, so ask it directly.
+    for (const r of (report && report.reports) || flat.map((id) => ({ id, found: false, verdict: "no SMC query for this team" }))) {
+      console.group(r.id);
+      if (r.order) console.table([r.order]);
+      if (r.gates) console.table([r.gates]);
+      if (r.foundOnlyWithoutShipperAllowList) {
+        console.warn(`shipper ${r.order && r.order.shipperid} is NOT in ${teamCfg.label}'s allow-list — that alone keeps it off the list`);
+      }
+      console.info(`SMC verdict: ${r.verdict}`);
+
+      const vrid = (r.order && r.order.vrid) || r.id;
+      if (vrid && teamCfg.key === "CST") {
+        try {
+          const { records } = await msg("fmcStatuses", { vrids: [vrid] });
+          const rec = records ? records[vrid] : null;
+          if (!rec) console.warn(`FMC has no record for ${vrid} — it would be dropped at FMC validation`);
+          else {
+            console.table([{ vehicle_carrier: rec.vehicle_carrier || "", status: rec.vehicle_execution_status || rec.status || "", tour: rec.tour_id || "" }]);
+            const passes = needsSourcingByFmcCarrier({ vehicle_carrier: rec.vehicle_carrier });
+            console.info(
+              passes
+                ? `FMC carrier gate: PASS (carrier "${rec.vehicle_carrier || "(none)"}" counts as needs-sourcing)`
+                : `FMC carrier gate: FAIL — carrier "${rec.vehicle_carrier}" is a real carrier, so it's treated as covered`
+            );
+            if (r.gates && Object.values(r.gates).every(Boolean) && passes) {
+              console.warn(
+                report && report.scopedFetch.truncated
+                  ? "Every gate passes, so the only explanation left is the TRUNCATED fetch above."
+                  : "Every gate passes and the fetch was complete — it SHOULD be on the list. Check the toolbar filters (status / carrier chips / country / group)."
+              );
+            }
+          }
+        } catch (e) {
+          console.warn(`FMC check failed: ${e.message}`);
+        }
+      }
+      console.groupEnd();
+    }
+    console.groupEnd();
+    return report;
+  }
+
   // FMC placeholder carriers meaning "not yet sourced" (from the team config,
   // with the historical CST/FMC defaults as fallback).
   const FALLBACK_PLACEHOLDER_CARRIERS = ["RLB1", "AZNG", "DUMMY"];
@@ -1522,7 +1691,15 @@
       tr.appendChild(
         el("td", {}, [
           row._lookup
-            ? el("span", { class: "ltl-badge ltl-badge-blue", text: "SMC", title: "Direct SMC lookup — not on the sourcing list, read-only" })
+            ? el("span", {
+                class: "ltl-badge ltl-badge-blue",
+                text: "SMC",
+                title:
+                  "Direct SMC lookup — read-only. " +
+                  (row._not_sourcing_reason
+                    ? `Not on the sourcing list: ${row._not_sourcing_reason}.`
+                    : "Not on the sourcing list."),
+              })
             : el("input", {
                 type: "checkbox",
                 class: "ltl-row-select",

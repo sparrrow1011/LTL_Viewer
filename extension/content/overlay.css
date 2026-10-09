@@ -692,6 +692,9 @@ table.ltl-grid td a.ltl-link:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 .ltl-lookup-bar span { flex: 1; }
+/* Why each looked-up run is off the sourcing list — sized to its content so it
+   doesn't halve the width of the main message. */
+.ltl-lookup-bar span.ltl-lookup-why { flex: 0 1 auto; font-style: italic; opacity: 0.85; }
 
 /* Read-only rows from a direct SMC lookup */
 table.ltl-grid tr.ltl-row-lookup td { background: #f8fafc; }

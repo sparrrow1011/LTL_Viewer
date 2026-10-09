@@ -14,7 +14,13 @@
   "use strict";
 
   const SEARCH_URL = "https://smc-eu-dub.dub.proxy.amazon.com/shipper/order/search";
-  const PAGE_SIZE = 25;
+  // PAGE_SIZE × MAX_PAGES is a hard ceiling on how many orders a fetch can see.
+  // At the old 25 (SMC's own UI default) that ceiling was 2,500, which CST
+  // exceeds on a normal day — orders past it were silently dropped, so runs
+  // that genuinely needed sourcing never reached the list while the by-ID
+  // lookup (which already asked for 200 a page) found them. 200 is proven
+  // against this endpoint by that lookup path and lifts the ceiling to 20,000.
+  const PAGE_SIZE = 200;
   const MAX_PAGES = 100;
   const DAYS_BACK = 7;
   const DAYS_FORWARD = 7;
@@ -390,6 +396,106 @@
     return { rows, found, missing, source, outsideShippers };
   }
 
+  /**
+   * Dry run: why is this order/VRID not on the sourcing list?
+   *
+   * Replays the team's REAL sourcing fetch for the window, then reports each
+   * gate separately instead of just returning the survivors. Answers the
+   * questions guessing can't: did SMC return it at all, was the fetch
+   * truncated, is its shipper in the allow-list, and which sourcing rule (if
+   * any) dropped it.
+   *
+   * Runs the query twice when needed — as the team sends it, and then without
+   * the shipper allow-list — so "SMC didn't return it" can be separated from
+   * "it's on a shipper this team isn't scoped to".
+   */
+  async function diagnoseIds(ids, win, opts = {}) {
+    const wanted = [...new Set(ids.map((v) => String(v).trim()).filter(Boolean))];
+    const { start, end } = resolveWindow(win);
+    const s = { ...DEFAULT_SOURCING, ...(opts.sourcing || {}) };
+    const excluded = new Set((s.excludeFreightTypes || []).map((v) => String(v).toUpperCase()));
+    const scope = (opts.shipperIds || []).map(String);
+    const isWanted = (r) =>
+      wanted.includes(String(r.orderid ?? "").trim()) || wanted.includes(String(r.vrid ?? "").trim());
+
+    // 1. exactly what the sourcing load asks for
+    const scoped = await fetchRows({ start, end }, { query: opts.query, shipperIds: opts.shipperIds });
+    const scopedMeta = { ...__lastMeta };
+    let hits = scoped.filter(isWanted);
+
+    // 2. not returned? try again without the shipper allow-list
+    let foundOnlyUnscoped = false;
+    let unscopedMeta = null;
+    if (!hits.length && scope.length) {
+      const unscoped = await fetchRows({ start, end }, { query: opts.query });
+      unscopedMeta = { ...__lastMeta };
+      hits = unscoped.filter(isWanted);
+      foundOnlyUnscoped = hits.length > 0;
+    }
+
+    const reports = wanted.map((id) => {
+      const row = hits.find(
+        (r) => String(r.orderid ?? "").trim() === id || String(r.vrid ?? "").trim() === id
+      );
+      if (!row) {
+        return {
+          id,
+          found: false,
+          verdict: scopedMeta.truncated
+            ? `SMC did not return it — but the fetch was TRUNCATED (${scopedMeta.fetched} of ${scopedMeta.total}), ` +
+              `so it may simply be past the paging cap. Narrow the window and re-run.`
+            : `SMC did not return it for this window with this team's query. Check the window bounds ` +
+              `against its planned check-in, and the query's orderSources / freightTypes / statuses.`,
+        };
+      }
+      const ft = String(row.freight_type ?? "").toUpperCase();
+      const inScope = !scope.length || scope.includes(String(row.shipperid ?? "").trim());
+      // The sourcing rules, each evaluated on its own.
+      const gates = {
+        returnedBySmc: true,
+        shipperInAllowList: inScope,
+        hasVrid: !(s.requireVrid && String(row.vrid ?? "").trim() === ""),
+        noSmcCarrier: !(s.requireNoCarrier && row.has_carrier),
+        freightTypeAllowed: !(excluded.size && excluded.has(ft)),
+      };
+      const failed = Object.entries(gates)
+        .filter(([, ok]) => !ok)
+        .map(([k]) => k);
+      return {
+        id,
+        found: true,
+        foundOnlyWithoutShipperAllowList: foundOnlyUnscoped,
+        order: {
+          orderid: row.orderid,
+          vrid: row.vrid,
+          shipperid: row.shipperid,
+          shippername: row.shippername,
+          freight_type: row.freight_type,
+          has_carrier: row.has_carrier,
+          smc_carrier: row.vehicle_carrier || "",
+          orig_planned_yard_checkin_time: row.orig_planned_yard_checkin_time,
+          order_status: row.order_status,
+          execution_status: row.execution_status,
+        },
+        gates,
+        verdict: failed.length
+          ? `SMC returned it, but the sourcing filter dropped it: ${failed.join(", ")}.`
+          : `SMC returned it and it passes every SMC-side rule — so the list's decision came later, ` +
+            `from FMC's carrier (checked by the caller).`,
+      };
+    });
+
+    return {
+      window: { start, end },
+      query: { ...DEFAULT_QUERY, ...(opts.query || {}) },
+      sourcing: s,
+      shipperAllowListSize: scope.length,
+      scopedFetch: scopedMeta,
+      unscopedFetch: unscopedMeta,
+      reports,
+    };
+  }
+
   // ── logged-in user (requester) from SMC config ──────────────────────────────
   // Same-origin fetch of /configuration/constants; the `requester` field is the
   // signed-in alias (e.g. "mayowas"). Cached after first success.
@@ -456,6 +562,11 @@
     }
     if (msg.action === "smc:requester") {
       return getRequester().then((requester) => ({ bridge: true, ok: true, requester })).catch(fail);
+    }
+    if (msg.action === "smc:diagnose") {
+      return diagnoseIds(msg.ids || [], msg.win || {}, msg.opts || {})
+        .then((report) => ({ bridge: true, ok: true, report }))
+        .catch(fail);
     }
     if (msg.action === "smc:lookup") {
       return lookupByIds(msg.ids || [], msg.win || {}, msg.opts || {})
