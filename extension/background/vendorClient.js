@@ -6,8 +6,11 @@
  * this turns that code into the vendor's name:
  *
  *   SMC order additionalReferenceIdList[type=VENDOR_CODE]   → the code
- *     → Portal /bp-api/vendor                               → code → name
- *       → buyingPortalVendorData[].vendorName               → shown in the table
+ *     → Portal /bp-api/vendor, one POST per code            → code → name
+ *       → buyingPortalVendorData.vendorName                 → shown in the table
+ *
+ * The API returns a single vendor per call (buyingPortalVendorData is an
+ * object), so the bridge fans a batch out into one request each.
  *
  * Vendor names don't change in practice, so resolved codes are cached in
  * browser.storage for Config.VENDOR_CACHE_DAYS. Each code then costs one Portal
@@ -26,8 +29,10 @@ const bridge = makeBridge({
 
 const CACHE_KEY = "ltl.vendorNames";
 const TTL_MS = (Number(Config.VENDOR_CACHE_DAYS) || 30) * 86_400_000;
-// Keep requests modest — the Portal is asked for many codes at once otherwise.
-const BATCH = 50;
+// Codes per bridge message. The bridge issues one Portal request per code (a
+// few in parallel), so this just bounds how long a single round-trip runs and
+// lets earlier batches land in the cache if a later one fails.
+const BATCH = 25;
 
 async function readCache() {
   try {
@@ -96,7 +101,22 @@ export async function lookupVendors(codes = [], { force = false } = {}) {
 
   const missing = wanted.filter((c) => !names[c]);
   if (missing.length) log.warn("vendor", `unresolved: ${missing.slice(0, 10).join(", ")}`);
-  return { names, resolved: wanted.length - missing.length, missing, ...(error ? { error } : {}) };
+  // Distinguish "couldn't ask" (error) from "asked, got no name" (reason) —
+  // they need different fixes, so the UI shouldn't blame the session for both.
+  const reason =
+    error ||
+    (missing.length
+      ? `The Portal answered but returned no vendorName for ${missing.length} code(s): ${missing
+          .slice(0, 5)
+          .join(", ")}.`
+      : null);
+  return {
+    names,
+    resolved: wanted.length - missing.length,
+    missing,
+    ...(error ? { error } : {}),
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /** Throws (with .expired) when the Portal session is gone. */

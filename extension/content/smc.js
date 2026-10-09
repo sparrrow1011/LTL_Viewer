@@ -350,6 +350,29 @@
       rows = matches(all);
       source = "smc";
     }
+
+    // Still missing, and we were searching inside a shipper allow-list? The run
+    // may exist on a shipper the team isn't scoped to — which looks identical to
+    // "doesn't exist" and is far more likely. Ask once more without the
+    // allow-list so we can say WHICH it is. Only on an explicit miss, because
+    // an unscoped window pull is expensive.
+    const scopeIds = (opts.shipperIds || []).map(String);
+    if (foundIds(rows).size < wanted.size && scopeIds.length) {
+      dlog(`lookup: still missing — re-pulling the window without the shipper allow-list`);
+      const all = await fetchRows(win, { query: opts.query, pageSize: 200 });
+      const hits = matches(all);
+      if (foundIds(hits).size > foundIds(rows).size) {
+        const scope = new Set(scopeIds);
+        for (const r of hits) {
+          // Flagged so the UI can explain why it wasn't on the sourcing list.
+          if (!scope.has(String(r.shipperid ?? "").trim())) r.out_of_scope = true;
+        }
+        rows = hits;
+        source = "smc:unscoped";
+        const outside = [...new Set(hits.filter((r) => r.out_of_scope).map((r) => r.shipperid))];
+        if (outside.length) dlog(`lookup: found outside the shipper list — shipper id(s) ${outside.join(", ")}`);
+      }
+    }
     if (opts.shipperMap) {
       for (const r of rows) {
         const s = opts.shipperMap[String(r.shipperid ?? "").trim()];
@@ -358,8 +381,13 @@
     }
     const found = [...foundIds(rows)];
     const missing = [...wanted].filter((id) => !found.includes(id));
+    // Shipper IDs the hits belong to that the team isn't scoped to — the reason
+    // those runs never reach the sourcing list.
+    const outsideShippers = [
+      ...new Set(rows.filter((r) => r.out_of_scope).map((r) => String(r.shipperid ?? "").trim()).filter(Boolean)),
+    ];
     dlog(`lookup: ${rows.length} row(s), found ${found.length}, missing ${missing.length} (${source})`);
-    return { rows, found, missing, source };
+    return { rows, found, missing, source, outsideShippers };
   }
 
   // ── logged-in user (requester) from SMC config ──────────────────────────────

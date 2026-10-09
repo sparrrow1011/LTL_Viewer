@@ -834,6 +834,22 @@ export async function getShippers(team, { force = false, useFile = false } = {})
   }
 
   if (!result) result = { shippers: {}, source: "none", path: null };
+
+  // Config-declared shippers that aren't in the workbook (see extraShippers in
+  // config.js). Added last and never overwriting a workbook/list entry, so the
+  // live source always wins.
+  for (const extra of cfg.extraShippers || []) {
+    const sid = String((extra && extra.shipperid) || "").trim();
+    if (!/^\d+$/.test(sid) || result.shippers[sid]) continue;
+    result.shippers[sid] = {
+      shipperid: sid,
+      shippername: String(extra.shippername || sid),
+      shipper_group: String(extra.shipper_group || ""),
+      from_config: true,
+    };
+    log.info("shippers", `added ${sid} from config (not in the workbook)`);
+  }
+
   result.count = Object.keys(result.shippers).length;
   result.fetchedAt = Date.now();
   if (workbookError) result.workbookError = workbookError;

@@ -506,7 +506,13 @@
       : [];
     if (gating && carriers.length) {
       const set = new Set(carriers);
-      preds.push((r) => set.has(String(r.vehicle_carrier ?? "").trim().toUpperCase()));
+      // NO_CARRIER_OPT isn't a carrier code — it selects rows with no carrier
+      // assigned at all, which the sourcing gate deliberately keeps.
+      const allowBlank = set.has(NO_CARRIER_OPT);
+      preds.push((r) => {
+        const c = String(r.vehicle_carrier ?? "").trim().toUpperCase();
+        return c ? set.has(c) : allowBlank;
+      });
     }
 
     // Status flag filters (Any / Yes / No), from the merged SharePoint records.
@@ -613,11 +619,19 @@
       const info = state.lookupInfo || {};
       const found = (info.found || []).length;
       const missing = info.missing || [];
+      const outside = info.outsideShippers || [];
       bar.appendChild(
         el("span", {
           text:
             `SMC lookup: ${state.lookup.length} row(s) for ${found} ID(s)` +
             (missing.length ? ` — not found in SMC (±${LOOKUP_DAYS}d): ${missing.join(", ")}` : "") +
+            // Found only once the shipper allow-list was dropped: the run exists
+            // but its shipper isn't in the team's scope, which is why it never
+            // reached the sourcing list. Name the IDs so it's actionable.
+            (outside.length
+              ? ` — found OUTSIDE ${teamCfg.label}'s shipper list, on shipper ID ${outside.join(", ")}` +
+                `. Add it to the Source of Truth (or extraShippers) for these runs to appear on the sourcing list.`
+              : "") +
             `. Read-only: these aren't on the sourcing list and nothing is saved for them.`,
         })
       );
@@ -670,7 +684,12 @@
       }
       for (const r of rows) r._lookup = true; // read-only display rows
       state.lookup = rows;
-      state.lookupInfo = { found: res.found, missing: res.missing, source: res.source };
+      state.lookupInfo = {
+        found: res.found,
+        missing: res.missing,
+        source: res.source,
+        outsideShippers: res.outsideShippers || [],
+      };
       viewMode = "lookup";
       updateCoveredButton();
       if (!rows.length) showEmptyNotice(`Not found in SMC (±${LOOKUP_DAYS} days): ${ids.join(", ")}`);
@@ -1042,13 +1061,16 @@
       return 0;
     }
     let res;
+    let why = "";
     try {
       res = await msg("vendorNames", { codes });
+      if (res && (res.error || res.reason)) why = res.error || res.reason;
     } catch (e) {
-      dlog(`vendor lookup skipped: ${e.message}`);
-      return 0;
+      why = e.message;
+      dlog(`vendor lookup skipped: ${why}`);
     }
     const names = (res && res.names) || {};
+    state.vendorError = why || null;
     let applied = 0;
     for (const r of targets) {
       const name = r.vendor_code ? names[r.vendor_code] : null;
@@ -1064,8 +1086,19 @@
     }
     console.info(
       `[LTL overlay] vendor names: ${applied}/${targets.length} resolved from ${codes.length} code(s)` +
+        (why ? ` — ${why}` : "") +
         (res && res.missing && res.missing.length ? `, unresolved: ${res.missing.slice(0, 5).join(", ")}` : "")
     );
+    // Don't leave the raw code on screen with no explanation: an unresolved
+    // vendor is almost always a signed-out Portal, which the user can fix.
+    if (!applied) {
+      toast(
+        `Vendor names unavailable — showing codes. ${
+          why || "The Procurement Portal returned no name. Open it and sign in, then Refresh."
+        }`,
+        "warn"
+      );
+    }
     return applied;
   }
 
@@ -1362,6 +1395,9 @@
   // FMC placeholder carriers meaning "not yet sourced" (from the team config,
   // with the historical CST/FMC defaults as fallback).
   const FALLBACK_PLACEHOLDER_CARRIERS = ["RLB1", "AZNG", "DUMMY"];
+  // Sentinel option in the carrier multi-select for "no carrier assigned".
+  // Parenthesised so it can't collide with a real SCAC.
+  const NO_CARRIER_OPT = "(NONE)";
   function placeholderCarriers() {
     const list =
       (teamCfg && teamCfg.sourcing && teamCfg.sourcing.placeholderCarriers) ||
@@ -1535,7 +1571,9 @@
               title: resolved
                 ? `Vendor ${row.vendor_code || ""} · shipper account ${row.shipper_account_name || ""}`.trim()
                 : row.vendor_code
-                  ? `Vendor code ${row.vendor_code} — name not resolved (Procurement Portal unavailable or signed out)`
+                  ? `Vendor code ${row.vendor_code} — name not resolved. ${
+                      state.vendorError || "The Procurement Portal is unavailable or signed out."
+                    }`
                   : "No vendor code on this order (created in SMC)",
             })
           );
@@ -2022,10 +2060,21 @@
         .map((r) => r.vehicle_carrier)
         .filter((v) => v != null && String(v).trim() !== "")
         .map(String);
-      carrierMs.setOptions([...defaults, ...rowCarriers]);
+      // A run with NO carrier at all is the clearest "needs sourcing" case —
+      // needsSourcingByFmcCarrier keeps it — so it must be selectable, or the
+      // placeholder chips would silently hide it (WePay runs come through this
+      // way). Offered and selected by default whenever such rows exist.
+      const hasBlank = state.rows.some((r) => String(r.vehicle_carrier ?? "").trim() === "");
+      carrierMs.setOptions(hasBlank ? [...defaults, NO_CARRIER_OPT, ...rowCarriers] : [...defaults, ...rowCarriers]);
       if (!carrierInit) {
         carrierInit = true;
-        carrierMs.setSelected(defaults);
+        blankCarrierOffered = hasBlank;
+        carrierMs.setSelected(defaultCarrierSelection(hasBlank));
+      } else if (hasBlank && !blankCarrierOffered) {
+        // Carrier-less rows turned up on a later load; don't hide them behind a
+        // selection the user never made. Done once, so deselecting it sticks.
+        blankCarrierOffered = true;
+        carrierMs.setSelected([...carrierMs.getSelected(), NO_CARRIER_OPT]);
       }
     }
   }
@@ -2142,6 +2191,11 @@
       (edited && !Number.isNaN(edited.getTime()) ? ` · last edited ${edited.toLocaleString()}` : "") +
       (shipperInfo && shipperInfo.fetchedAt
         ? ` · read ${new Date(shipperInfo.fetchedAt).toLocaleTimeString()}`
+        : "") +
+      // Keep the count honest: some entries are declared in config because they
+      // can't be in the workbook (programme accounts like WePay).
+      (all.some((s) => s.from_config)
+        ? ` · +${all.filter((s) => s.from_config).length} added from config`
         : "");
 
     // If we wanted the workbook but couldn't read it, say so here rather than
@@ -2567,10 +2621,18 @@
   let root;
   let carrierMs = null; // carrier multi-select controller
   let carrierInit = false; // whether team carrier defaults have been applied yet
+  // Whether "(NONE)" has been offered already. Auto-selected the first time
+  // carrier-less rows show up, then left alone so deselecting it sticks.
+  let blankCarrierOffered = false;
   let statusInit = false; // whether the team status default has been applied yet
   const FALLBACK_CARRIER_DEFAULTS = ["RLB1", "AZNG", "DUMMY"];
   function carrierDefaults() {
     return (teamCfg && teamCfg.carrierDefaults) || FALLBACK_CARRIER_DEFAULTS;
+  }
+  /** Team placeholder carriers, plus "(NONE)" when carrier-less rows exist. */
+  function defaultCarrierSelection(hasBlank) {
+    const defaults = carrierDefaults();
+    return hasBlank ? [...defaults, NO_CARRIER_OPT] : [...defaults];
   }
   function buildUI() {
     // Standalone page (ui/app.html): the panel IS the page — no floating
@@ -2787,7 +2849,13 @@
         if (n) n.value = "";
       });
       // Reset the carrier multi-select + status back to the team defaults.
-      if (carrierMs) carrierMs.setSelected(carrierDefaults());
+      if (carrierMs) {
+        // Keep "(NONE)" in the reset when carrier-less rows are loaded —
+        // otherwise Clear quietly hides runs that need sourcing most.
+        carrierMs.setSelected(
+          defaultCarrierSelection(state.rows.some((r) => String(r.vehicle_carrier ?? "").trim() === ""))
+        );
+      }
       statusInit = false; // populateFilters() re-applies the team status default
       // Reset the window back to the default (today 00:00 → tomorrow 00:05), not empty.
       root.querySelector("#ltl-start").value = todayIso();

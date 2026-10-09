@@ -182,7 +182,10 @@ export const Config = {
       },
       shipperList: "CST_Shippers",
       smcQuery: {
-        orderSources: ["SMC", "R4S", "EDI", "AFAPI"],
+        // AFDIG matters: programme accounts (WePay) raise their orders through
+        // it, so without it SMC returns nothing for them however wide the
+        // window or shipper scope. Taken from SMC's own network request.
+        orderSources: ["SMC", "R4S", "EDI", "AFAPI", "AFDIG"],
         freightTypes: ["LESS_THAN_TRUCKLOAD", "TRUCKLOAD", "INTERMODAL"],
         orderExecutionStatuses: [
           "IN_DRAFT", "NOT_PLANNED", "PENDING_CARRIER_ACCEPTANCE",
@@ -223,6 +226,15 @@ export const Config = {
         tag: "WP",
         tagTitle: "WePay — name resolved from the order's vendor code",
       },
+
+      // Shippers that must be in SMC scope but will never appear in the Source
+      // of Truth workbook, because they aren't CST shippers: WePay is a
+      // payment programme, yet its loads still need sourcing. Merged AFTER the
+      // workbook and the workbook wins on a clash, so an entry here goes inert
+      // (rather than conflicting) if the ID is ever added there properly.
+      extraShippers: [
+        { shipperid: "6771301528", shippername: "WePay_Program", shipper_group: "CST - WePay" },
+      ],
       eml: {
         to: "amazonfreight-eu-sourcing@amazon.com",
         cc: "amazonfreight-eu-sourcing@amazon.com",

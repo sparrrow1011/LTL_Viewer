@@ -136,6 +136,9 @@ export function makeBridge({ name, tabMatch, tabUrl, script }) {
       if (resp && resp.ok) log.info(name, "session restored after tab reload");
     }
     if (!resp || !resp.bridge) throw new Error(`${name} bridge returned no response`);
+    // Bridges that keep a diagnostic trace (vendor) hand it back; surface it in
+    // the background log so it's readable without opening the bridge's tab.
+    if (Array.isArray(resp.trace)) for (const line of resp.trace) log.debug(name, `· ${line}`);
     if (!resp.ok) {
       log.warn(name, `← ${message.action} failed after ${Date.now() - t0}ms: ${resp.error}`);
       const err = new Error(resp.error || `${name} bridge failed (HTTP ${resp.status})`);

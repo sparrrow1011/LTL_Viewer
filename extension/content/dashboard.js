@@ -106,6 +106,38 @@
       parseDate(r.covered_at),
     ].filter(Boolean);
   }
+  // The activity dates in priority order, newest wins. Keeping the label means
+  // the UI can say WHAT the activity was, not just when — "12/10/2026" alone
+  // doesn't tell you whether we sourced it or FMC covered it.
+  const ACTIVITY_FIELDS = [
+    ["manual_source_date", "manual sourced"],
+    ["email_generated_at", "email generated"],
+    ["email_sent_confirmed_at", "email sent"],
+    ["covered_at", "covered"],
+  ];
+  /** @returns {{iso: string, ts: number, label: string}|null} null = seen-only. */
+  function activityOf(r) {
+    let best = null;
+    for (const [field, label] of ACTIVITY_FIELDS) {
+      const d = parseDate(r[field]);
+      if (d && (!best || d.getTime() > best.ts)) best = { iso: r[field], ts: d.getTime(), label };
+    }
+    return best;
+  }
+  /** Day only — the activity filter works in whole days, so show whole days. */
+  function fmtDay(iso) {
+    const d = parseDate(iso);
+    return d ? d.toLocaleDateString() : "";
+  }
+  /**
+   * yyyy-mm-dd in LOCAL time. Deliberately not toISOString(), which converts to
+   * UTC and would move an evening activity to the next/previous day — the
+   * dashboard's date range is local, so the export must agree with it.
+   */
+  function isoDay(d) {
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
   function latestActivity(r) {
     const ds = recordDates(r);
     if (ds.length) return Math.max(...ds.map((d) => d.getTime()));
@@ -492,11 +524,19 @@
     "outcome", "covered", "final_carrier", "final_carrier_name", "final_status", "covered_at", "outcome_checked_at",
     // lane dimension (matches the Lanes tab) + FM/MM + real ISO week numbers
     "lane", "mile", "cr_id", "ms_week", "seen_week",
+    // The date the Activity filter actually uses, so a pivot on the export can
+    // reproduce what the dashboard showed. Blank on seen-only runs.
+    "activity_at", "activity_day", "activity_kind", "activity_week",
   ];
   function historyCell(r, c) {
     if (c === "covered") return r.covered_at ? "yes" : "no";
     if (c === "outcome") return OUTCOME_LABEL[outcomeOf(r)];
     if (c === "lane") return laneKey(r) === "(no lane)" ? "" : laneKey(r);
+    if (c === "activity_at") { const a = activityOf(r); return a ? a.iso : ""; }
+    if (c === "activity_kind") { const a = activityOf(r); return a ? a.label : ""; }
+    // yyyy-mm-dd (local): sorts and pivots correctly, unlike a locale date.
+    if (c === "activity_day") { const a = activityOf(r); return a ? isoDay(new Date(a.ts)) : ""; }
+    if (c === "activity_week") { const a = activityOf(r); return a ? wkLabel(weekKey(new Date(a.ts)), { withYear: true }) : ""; }
     if (c === "ms_week") { const d = parseDate(r.manual_source_date); return d ? wkLabel(weekKey(d), { withYear: true }) : ""; }
     if (c === "seen_week") { const d = parseDate(r.first_seen_at); return d ? wkLabel(weekKey(d), { withYear: true }) : ""; }
     return r[c];
@@ -727,7 +767,19 @@
     const table = el("table", { class: "ltl-dash-usertable ltl-dash-runs" });
     const canToggle = typeof onToggle === "function";
     table.appendChild(
-      el("tr", {}, ["Shipper", "VRID", "Lane", "First seen", "MS", "MS by", "MS at", "SIMS", "Outcome", "Carrier now", "Covered at"].map((h) => el("th", { text: h })))
+      el(
+        "tr",
+        {},
+        ["Shipper", "VRID", "Lane", "Activity", "First seen", "MS", "MS by", "MS at", "SIMS", "Outcome", "Carrier now", "Covered at"].map(
+          (h) =>
+            el("th", {
+              text: h,
+              // The rows are sorted by this and the date filter uses it, so say
+              // what it means.
+              title: h === "Activity" ? "Latest activity: manual source, email, or FMC coverage. What the Activity date range filters on." : "",
+            })
+        )
+      )
     );
     for (const r of rows.slice(0, MAX)) {
       const out = outcomeOf(r);
@@ -748,6 +800,15 @@
           el("td", { text: r.shippername || "" }),
           el("td", {}, [vrid]),
           el("td", { text: r.orig_node || r.dest_node ? `${r.orig_node || "?"} → ${r.dest_node || "?"}` : "" }),
+          // Activity day + what it was. Seen-only runs have none by definition.
+          (() => {
+            const a = activityOf(r);
+            return el("td", {
+              text: a ? fmtDay(a.iso) : "–",
+              class: a ? "" : "ltl-dash-muted",
+              title: a ? `${a.label} · ${fmtLocal(a.iso)}` : "Seen only — no activity recorded yet",
+            });
+          })(),
           el("td", { text: fmtLocal(r.first_seen_at) }),
           el("td", {}, [msBox]),
           el("td", { text: r.manual_source_by || "" }),

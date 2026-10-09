@@ -145,28 +145,51 @@ SMC's). "Needs sourcing" is decided by **FMC's `vehicle_carrier`**: kept only
 if empty or a placeholder (`sourcing.placeholderCarriers`); a real carrier
 means covered → dropped. All CST rows are FM.
 
+**Carrier filter and "(NONE)".** The toolbar's carrier chips default to the
+team's placeholders (RLB1 / AZNG / DUMMY), but a run with **no carrier at all**
+is the clearest needs-sourcing case and the gate keeps it — so whenever such
+rows are loaded the chips gain a `(NONE)` option, selected by default (and kept
+by *Clear*). Without it the placeholder chips silently hid carrier-less runs,
+which is how WePay runs went missing. Deselect it to hide them; that choice
+then sticks.
+
 Both paths log to the console (`[LTL overlay] FMC search: …`, `tagged N FM /
 M MM`, `Carrier breakdown: …`) so an unexpected count can be traced to what
 FMC/SMC actually returned.
 | Records list | `LTL_Records` | `CST_Records` |
-| Shipper source of truth | – | `source_of_truth_crawler.csv` in the SharePoint "CST" library (fallback: `CST_Shippers` list) |
+| Shipper source of truth | – | `Source of Truth 2026.xlsx` on SharePoint (fallbacks: `source_of_truth_crawler.csv`, then the `CST_Shippers` list) |
 | Extra column | – | `shipper_group` (CST / CST - ELEX / CST - Mega Shipper) |
 
 CST's scope is defined by its shipper source of truth, read **automatically from
-SharePoint** the same way CST_viewer does. CST_viewer's
-`scripts/update_shippers.py` exports the "Shippers" sheet of
-`Source Of Truth 2026.xlsx` to `source_of_truth_crawler.csv` inside the
-SharePoint-synced library "Amazon Freight Operations - CST"
-(`CST L4+/PROCESS IMPROVEMENT/`). The extension reads that CSV through the
-SharePoint bridge (`Config.TEAMS.CST.shipperSource`): configured paths first,
-then the last path that worked, then SharePoint Search by file name. Header
-aliases like `Shipper ID` / `DEPT` are accepted and junk rows without a numeric
-shipperid are dropped. Cached for 30 minutes; the toolbar's **Shippers (N) ↻**
-button re-reads it.
+SharePoint**, in this order:
 
-Fallback: if the CSV can't be found, the extension uses the `CST_Shippers`
-SharePoint list instead, which you can fill from the toolbar's
-**Shippers · Import** (pick the CSV; the import replaces the list).
+1. **The Source of Truth workbook itself** (`shipperWorkbook`) — the "Shippers"
+   sheet of `Source of Truth 2026.xlsx`, parsed in the extension by
+   `background/xlsx.js`. This is the primary source: it's the file the team
+   actually edits, so it's never stale. Read with `cache: "no-store"`, and the
+   Shippers dialog shows the file's own `TimeLastModified` so you can see how
+   current it is. Always the **online** copy — never the OneDrive-synced one,
+   which runs days behind.
+2. **The published CSV** (`shipperSource`) — `source_of_truth_crawler.csv`,
+   written by CST_viewer's `scripts/update_shippers.py`. Used only if the
+   workbook can't be read; it lags, because it depends on someone running that
+   script. The dialog says so when this path is in use.
+3. **The `CST_Shippers` SharePoint list** — a manual import from the toolbar's
+   **Shippers · Import**. Importing sets a "use the list" override, so the
+   extension stops consulting the file until the override is cleared.
+
+Resolution tries the configured paths, then the last path that worked, then a
+folder scan / SharePoint Search by file name. Header aliases like `Shipper ID` /
+`DEPT` are accepted and junk rows without a numeric shipperid are dropped.
+Cached for 30 minutes; the Shippers dialog's **Re-read** button refetches.
+
+**Shippers that can't be in the workbook.** `Config.TEAMS.CST.extraShippers`
+declares shipper IDs that must be in scope but will never be in the Source of
+Truth, because they aren't CST shippers — currently the WePay programme account
+(`6771301528`), whose loads still need sourcing. These are merged *after* the
+live source and never overwrite it, so an entry goes inert if the ID is ever
+added upstream. The Shippers dialog appends *+N added from config* so the count
+stays honest.
 
 Every background message carries `team`, so records, shippers and the dashboard
 are scoped to the selected team. FMC enrichment is team-agnostic (per VRID).
@@ -227,6 +250,27 @@ The header has a Light / Dark / System switch. System follows the OS
 `browser.storage.local` (`ltl.theme`). Dark styles live at the bottom of
 `content/overlay.css` under `html[data-theme="dark"]`.
 
+### Programme accounts: showing the real vendor (WePay)
+
+Some shipper accounts are programmes rather than companies, so every run under
+them carries the same placeholder shipper name (`WePay_Program`) and you can't
+tell who the freight is actually for. For the shipper IDs listed in the team's
+`vendorLookup.shipperIds`, the overlay resolves the vendor instead:
+
+1. SMC's order carries the vendor code in `additionalReferenceIdList` under
+   type `VENDOR_CODE` (`content/smc.js` → `vendor_code`).
+2. `background/vendorClient.js` resolves codes to names through
+   `content/vendor-bridge.js`, a bridge on the Procurement Portal's own origin
+   (`POST /bp-api/vendor`, one request per code — the reply describes a single
+   vendor under `buyingPortalVendorData`, so posting a list gains nothing).
+3. The shipper column then shows the vendor name with a purple **WP** tag; the
+   programme account itself moves to the hover title.
+
+Names are cached in `browser.storage.local` (`ltl.vendorNames`) for
+`VENDOR_CACHE_DAYS` (30), so a code costs one Portal call a month. The whole
+step is best-effort: if the Portal is signed out or unreachable the load still
+completes and the row shows the raw vendor code in grey italic instead.
+
 ### Searching for a run that isn't on the list
 
 The sourcing list only holds runs with no real carrier. Searching for an order
@@ -240,12 +284,29 @@ select/EML, no Manual Source or email controls, nothing tracked or saved. IDs
 SMC doesn't return in that window are listed as not found. Clearing the search
 (or the *Back to sourcing list* button) returns to the normal view.
 
+The team's query is restricted to its shipper allow-list, so "not found" would
+otherwise be ambiguous — the run may simply belong to a shipper the team isn't
+scoped to, which is the more common case. If anything is still missing, the
+lookup retries the window **once without the allow-list**; hits found that way
+are flagged and the bar names the shipper ID they belong to, so the fix (add it
+to the Source of Truth, or to `extraShippers`) is obvious instead of looking
+like a missing run.
+
 ### Exporting past data (history)
 
 Manual Sourcing's *Download CSV* only covers loads currently in the sourcing
 list. For history, use the Dashboard: pick the activity date range, set the
 MS / Generated / Sent filters (Any / Yes / No), and click **Download CSV**. It
 exports the matching SharePoint records as `<TEAM>_History_<from>_<to>.csv`.
+
+The Runs tab shows an **Activity** column: the latest of manual source / email
+generated / email sent / FMC coverage — the same date the Activity range
+filters on and the table sorts by, so the ordering is explicable. Hovering says
+which of those it was; seen-only runs show `–`. The export carries the same
+thing as `activity_at` (timestamp), `activity_day` (yyyy-mm-dd), `activity_kind`
+and `activity_week`, so a pivot reproduces what the dashboard displayed.
+`activity_day` is the **local** day, matching the filter — not a UTC date, which
+would move evening activity to the wrong day.
 
 Records capture a load-context snapshot at save time (shipper, shipper group,
 lane, countries, planned check-in times, carrier, tour, freight type) so the
@@ -327,22 +388,34 @@ team entry in `config.js` (`Config.TEAMS`).
 
 ```
 extension/
-  manifest.json            MV3 manifest (SMC + SharePoint content scripts, tabs perm)
-  config.js                Site URL, list name, EML constants, DEBUG flag
+  manifest.json            MV3 manifest (SMC / SharePoint / FMC / Portal content scripts, tabs perm)
+  config.js                Per-team config (TEAMS), site URLs, EML constants, DEBUG flag
   icons/                   icon-48.png, icon-96.png
+  ui/
+    app.html               The standalone page the toolbar button opens
+    app.css                Page chrome (the table itself is styled by overlay.css)
   background/
     debug.js               Toggleable logger (SpError-aware); __ltlDebug on background/page
+    control.js             Remote kill-switch / notices from the updates branch
+    usage.js               Usage counters
+    bridgeClient.js        Generic "talk to a content-script bridge on origin X" helper
     spClient.js            SharePoint REST — delegates to the bridge via a SharePoint tab
     sharepointStore.js     Records store: load/save + list auto-create + rowKey
-    runsService.js         Records service: getRecords, MS toggle, email generate/sent
-    background.js          Message router (getRecords/toggle*/mark*/setDebug)
+    smcClient.js           SMC search/lookup via the SMC bridge
+    fmcClient.js           FMC enrichment + outcome sweep via the FMC bridge
+    vendorClient.js        Vendor code -> name via the Portal bridge, 30-day cache
+    xlsx.js                Minimal xlsx reader (CST shipper workbook)
+    runsService.js         Records service: getRecords, MS toggle, email generate/sent, shippers
+    background.js          Message router (getRecords/toggle*/mark*/vendorNames/setDebug/...)
   content/
     smc.js                 SMC fetch + "needs sourcing" filter (VRID present, no carrier)
     eml.js                 EML builder (verbatim template) -> window.__ltlEml
     sp-bridge.js           Runs on the SharePoint origin; does the actual _api fetches
-    overlay.js             Injected UI: table, filters, sort/search, links, badges, MS toggle, EML
-    dashboard.js           Dashboard tab -> window.__ltlDashboard
-    overlay.css            Panel styles (scoped under #ltl-overlay)
+    fmc-bridge.js          Runs on the FMC origin; per-VRID status / carrier / times
+    vendor-bridge.js       Runs on the Procurement Portal origin; POST /bp-api/vendor
+    overlay.js             The UI: table, filters, sort/search, links, badges, MS toggle, EML
+    dashboard.js           Dashboard tabs -> window.__ltlDashboard
+    overlay.css            Panel styles (scoped under #ltl-overlay) + dark theme
 ```
 
 ## Debugging
