@@ -22,6 +22,11 @@
   // against this endpoint by that lookup path and lifts the ceiling to 20,000.
   const PAGE_SIZE = 200;
   const MAX_PAGES = 100;
+  // A query with NO shipper allow-list covers every shipper in the region, so
+  // it can page almost without end and SMC drops the connection ("NetworkError
+  // when attempting to fetch resource"). Diagnostics that widen the search this
+  // far stay inside this much smaller cap.
+  const UNSCOPED_MAX_PAGES = 10;
   const DAYS_BACK = 7;
   const DAYS_FORWARD = 7;
 
@@ -139,12 +144,31 @@
       headers["x-csrf-token"] = csrf;
       headers["anti-csrftoken-a2z"] = csrf;
     }
-    const res = await fetch(SEARCH_URL, {
-      method: "POST",
-      credentials: "include",
-      headers,
-      body: JSON.stringify(payload),
-    });
+    const body = JSON.stringify(payload);
+    // A fetch that fails at the network level (SMC dropping a big request:
+    // "NetworkError when attempting to fetch resource") used to abort the whole
+    // paged fetch, losing every page already read. One retry after a pause
+    // covers the transient case; a second failure is reported with the page
+    // number so it's clear where it stopped.
+    let res;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        res = await fetch(SEARCH_URL, { method: "POST", credentials: "include", headers, body });
+        break;
+      } catch (err) {
+        const why = String((err && err.message) || err);
+        if (attempt >= 2) {
+          const page = payload.pageCriteria ? payload.pageCriteria.page : "?";
+          const size = payload.pageCriteria ? payload.pageCriteria.size : "?";
+          throw new Error(
+            `SMC search failed at the network level on page ${page} (size ${size}): ${why}. ` +
+              `A narrower window or fewer shippers usually fixes it.`
+          );
+        }
+        console.warn(`[LTL smc] search request failed (${why}) — retrying once`);
+        await new Promise((r) => setTimeout(r, 1_500));
+      }
+    }
     dlog(`POST search page → HTTP ${res.status}`);
     if (res.status !== 200) {
       const snippet = (await res.text().catch(() => "")).slice(0, 300);
@@ -251,6 +275,9 @@
     dlog(`window ${w.start} → ${w.end}`);
     const rows = [];
     const size = opts.pageSize || PAGE_SIZE;
+    // Callers doing a wide, best-effort search (no shipper allow-list) cap this
+    // so one diagnostic can't try to page the whole of SMC.
+    const maxPages = Math.max(1, Math.min(opts.maxPages || MAX_PAGES, MAX_PAGES));
     __lastRawOrders = [];
     __lastMeta = { total: 0, fetched: 0, pages: 0, truncated: false };
     let page = 1;
@@ -263,10 +290,10 @@
       __lastMeta = { total, fetched: __lastRawOrders.length, pages: page, truncated: false };
       dlog(`page ${page}: ${orders.length} orders (total ${total}), rows so far ${rows.length}`);
       if (page * size >= total || orders.length === 0) break;
-      if (page >= MAX_PAGES) {
+      if (page >= maxPages) {
         __lastMeta.truncated = true;
         console.warn(
-          `[LTL smc] stopped at the ${MAX_PAGES}-page cap with ${__lastRawOrders.length} of ${total} orders fetched`
+          `[LTL smc] stopped at the ${maxPages}-page cap with ${__lastRawOrders.length} of ${total} orders fetched`
         );
         break;
       }
@@ -350,6 +377,7 @@
 
     let rows = matches(__lastRawOrders.flatMap(orderToRows));
     let source = "cache";
+    let unscopedError = null;
     if (foundIds(rows).size < wanted.size) {
       dlog(`lookup: ${wanted.size - foundIds(rows).size} id(s) not in cache — re-pulling window`);
       const all = await fetchRows(win, { query: opts.query, shipperIds: opts.shipperIds, pageSize: 200 });
@@ -365,18 +393,28 @@
     const scopeIds = (opts.shipperIds || []).map(String);
     if (foundIds(rows).size < wanted.size && scopeIds.length) {
       dlog(`lookup: still missing — re-pulling the window without the shipper allow-list`);
-      const all = await fetchRows(win, { query: opts.query, pageSize: 200 });
-      const hits = matches(all);
-      if (foundIds(hits).size > foundIds(rows).size) {
-        const scope = new Set(scopeIds);
-        for (const r of hits) {
-          // Flagged so the UI can explain why it wasn't on the sourcing list.
-          if (!scope.has(String(r.shipperid ?? "").trim())) r.out_of_scope = true;
+      // Dropping the allow-list makes this query enormous (every shipper, every
+      // freight type, a wide window), so: capped pages, and best-effort. It's
+      // only here to EXPLAIN a miss — if it fails, the lookup must still return
+      // its scoped result rather than erroring out.
+      try {
+        const all = await fetchRows(win, { query: opts.query, pageSize: 200, maxPages: UNSCOPED_MAX_PAGES });
+        const hits = matches(all);
+        if (foundIds(hits).size > foundIds(rows).size) {
+          const scope = new Set(scopeIds);
+          for (const r of hits) {
+            // Flagged so the UI can explain why it wasn't on the sourcing list.
+            if (!scope.has(String(r.shipperid ?? "").trim())) r.out_of_scope = true;
+          }
+          rows = hits;
+          source = "smc:unscoped";
+          const outside = [...new Set(hits.filter((r) => r.out_of_scope).map((r) => r.shipperid))];
+          if (outside.length) dlog(`lookup: found outside the shipper list — shipper id(s) ${outside.join(", ")}`);
         }
-        rows = hits;
-        source = "smc:unscoped";
-        const outside = [...new Set(hits.filter((r) => r.out_of_scope).map((r) => r.shipperid))];
-        if (outside.length) dlog(`lookup: found outside the shipper list — shipper id(s) ${outside.join(", ")}`);
+      } catch (e) {
+        // Keep the scoped answer; just note why we couldn't widen the search.
+        unscopedError = String((e && e.message) || e);
+        console.warn(`[LTL smc] lookup: the unscoped re-pull failed (${unscopedError}) — reporting the scoped result`);
       }
     }
     if (opts.shipperMap) {
@@ -393,7 +431,7 @@
       ...new Set(rows.filter((r) => r.out_of_scope).map((r) => String(r.shipperid ?? "").trim()).filter(Boolean)),
     ];
     dlog(`lookup: ${rows.length} row(s), found ${found.length}, missing ${missing.length} (${source})`);
-    return { rows, found, missing, source, outsideShippers };
+    return { rows, found, missing, source, outsideShippers, ...(unscopedError ? { unscopedError } : {}) };
   }
 
   /**
@@ -426,11 +464,18 @@
     // 2. not returned? try again without the shipper allow-list
     let foundOnlyUnscoped = false;
     let unscopedMeta = null;
+    let unscopedError = null;
     if (!hits.length && scope.length) {
-      const unscoped = await fetchRows({ start, end }, { query: opts.query });
-      unscopedMeta = { ...__lastMeta };
-      hits = unscoped.filter(isWanted);
-      foundOnlyUnscoped = hits.length > 0;
+      // Capped and best-effort, for the same reason as in lookupByIds: without
+      // the allow-list this query is region-wide.
+      try {
+        const unscoped = await fetchRows({ start, end }, { query: opts.query, maxPages: UNSCOPED_MAX_PAGES });
+        unscopedMeta = { ...__lastMeta };
+        hits = unscoped.filter(isWanted);
+        foundOnlyUnscoped = hits.length > 0;
+      } catch (e) {
+        unscopedError = String((e && e.message) || e);
+      }
     }
 
     const reports = wanted.map((id) => {
@@ -492,6 +537,7 @@
       shipperAllowListSize: scope.length,
       scopedFetch: scopedMeta,
       unscopedFetch: unscopedMeta,
+      unscopedError,
       reports,
     };
   }

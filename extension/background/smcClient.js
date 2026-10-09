@@ -41,6 +41,9 @@ export async function lookupByIds(ids, win, opts = {}) {
     missing: resp.missing || [],
     source: resp.source,
     outsideShippers: resp.outsideShippers || [],
+    // Set when the "search without the shipper allow-list" fallback couldn't
+    // run, so a miss can't be read as "definitely doesn't exist".
+    unscopedError: resp.unscopedError || null,
   };
 }
 

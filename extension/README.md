@@ -472,6 +472,15 @@ the team's real sourcing query rather than re-implementing it. It prints:
 
 Read-only — it only issues the same searches a load does.
 
+A query with **no** shipper allow-list is region-wide, so SMC will drop it
+("NetworkError when attempting to fetch resource") if it's allowed to page
+freely. Both widened searches (the dry run's and the lookup's) are therefore
+capped at `UNSCOPED_MAX_PAGES` and are best-effort: if one fails, the scoped
+answer is still returned and the failure is reported, so a miss is never
+misread as "this run doesn't exist". Individual search requests also retry once
+after a network-level failure, so one bad page no longer discards every page
+already read.
+
 ## What's verified vs. what needs a live environment
 
 Verified locally:

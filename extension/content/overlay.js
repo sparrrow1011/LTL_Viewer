@@ -628,6 +628,11 @@
           text:
             `SMC lookup: ${state.lookup.length} row(s) for ${found} ID(s)` +
             (missing.length ? ` — not found in SMC (±${LOOKUP_DAYS}d): ${missing.join(", ")}` : "") +
+            // Without this the miss reads as "doesn't exist", when really the
+            // wider search couldn't be completed.
+            (missing.length && info.unscopedError
+              ? ` (the wider search outside ${teamCfg.label}'s shipper list couldn't complete: ${info.unscopedError})`
+              : "") +
             // Found only once the shipper allow-list was dropped: the run exists
             // but its shipper isn't in the team's scope, which is why it never
             // reached the sourcing list. Name the IDs so it's actionable.
@@ -710,6 +715,7 @@
         missing: res.missing,
         source: res.source,
         outsideShippers: res.outsideShippers || [],
+        unscopedError: res.unscopedError || null,
       };
       viewMode = "lookup";
       updateCoveredButton();
@@ -1514,8 +1520,12 @@
       console.info(`shipper allow-list: ${report.shipperAllowListSize} id(s)`);
       if (report.unscopedFetch) {
         console.info(
-          `re-ran without the allow-list: ${report.unscopedFetch.fetched} of ${report.unscopedFetch.total} orders`
+          `re-ran without the allow-list: ${report.unscopedFetch.fetched} of ${report.unscopedFetch.total} orders` +
+            (report.unscopedFetch.truncated ? " (capped — region-wide search, only the first pages were read)" : "")
         );
+      }
+      if (report.unscopedError) {
+        console.warn(`the re-run without the allow-list failed: ${report.unscopedError}`);
       }
     }
 
