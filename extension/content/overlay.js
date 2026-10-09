@@ -1124,6 +1124,38 @@
         `[LTL overlay] check-in window ${uiWin.start} → ${uiWin.end}: ${before} → ${state.rows.length} rows` +
           ` (fetched origins from ${lookbackDays}d earlier; kept ${unknown} with no check-in time)`
       );
+
+      // Is the lookback deep enough? Measure how far each kept run's check-in
+      // sits after its SMC origin. If the widest gap is pressing against the
+      // lookback, runs with longer transit exist just beyond the fetch and are
+      // invisible — the exact failure this lookback was added to fix, so it
+      // must not fail silently a second time.
+      const gaps = state.rows
+        .map((r) => {
+          const origin = Date.parse(r.smc_origin_time || "");
+          const checkin = Date.parse(r.orig_planned_yard_checkin_time || "");
+          return Number.isNaN(origin) || Number.isNaN(checkin) ? null : (checkin - origin) / 86400_000;
+        })
+        .filter((v) => v != null && v >= 0);
+      if (gaps.length) {
+        const max = Math.max(...gaps);
+        const nearLimit = gaps.filter((g) => g > lookbackDays - 2).length;
+        console.info(
+          `[LTL overlay] origin → check-in transit: max ${max.toFixed(1)}d over ${gaps.length} run(s), ` +
+            `lookback ${lookbackDays}d`
+        );
+        if (nearLimit) {
+          console.warn(
+            `[LTL overlay] ${nearLimit} run(s) have transit within 2 days of the ${lookbackDays}d lookback ` +
+              `(max ${max.toFixed(1)}d) — longer-transit runs would be missed. Raise smcOriginLookbackDays.`
+          );
+          toast(
+            `${nearLimit} run(s) have origin→check-in transit close to the ${lookbackDays}-day lookback ` +
+              `(max ${max.toFixed(1)}d). Runs with longer transit may be missing — raise the lookback.`,
+            "warn"
+          );
+        }
+      }
     }
 
     // "Needs sourcing" is CONTROLLED BY FMC's vehicle_carrier: keep only rows

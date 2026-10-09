@@ -150,9 +150,17 @@ on validation.
 So CST fetches origins from `smcOriginLookbackDays` (14) **before** the window
 start, then re-narrows on the check-in once FMC has supplied it, logging
 `check-in window …: N → M rows`. Rows with no check-in time at all are kept
-rather than dropped. Raise the lookback if long-transit runs still go missing;
-the cost is a bigger fetch (~15 days of orders), which is only affordable
-because of the page-size fix below.
+rather than dropped. The cost is a bigger fetch (~15 days of orders), which is
+only affordable because of the page-size fix below.
+
+**Is 14 days deep enough?** The load measures it rather than assuming. SMC's
+origin stop is kept as `smc_origin_time` (FMC overwrites
+`orig_planned_yard_checkin_time`, so the original would otherwise be lost), and
+each load logs `origin → check-in transit: max N d over M run(s)`. If any run's
+transit comes within 2 days of the lookback, it warns — on the console and as a
+toast — because runs with longer transit would be sitting just outside the
+fetch, invisible. That's the failure this lookback exists to fix, so it isn't
+allowed to recur silently. Raise `smcOriginLookbackDays` when you see it.
 
 **The SMC paging ceiling.** A fetch reads at most `PAGE_SIZE × MAX_PAGES`
 orders. That was 25 × 100 = **2,500**, which CST exceeds on a normal day, so

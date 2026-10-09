@@ -251,6 +251,11 @@
       freight_type: order.freightType,
       vehicle_carrier: carrierDetails.carrierId,
       orig_planned_yard_checkin_time: stop1.startTime,
+      // SMC's ORIGIN stop time, kept under its own name because FMC overwrites
+      // orig_planned_yard_checkin_time with the RUN's check-in. This is the
+      // date SMC's originDateRange matches, so it's the only way to measure
+      // origin → check-in transit and tell whether the lookback is deep enough.
+      smc_origin_time: stop1.startTime,
       dest_planned_yard_checkin_time: stop2.startTime,
       status: order.orderStatus,
       execution_status: order.executionStatus,
