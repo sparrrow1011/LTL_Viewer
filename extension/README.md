@@ -162,6 +162,16 @@ by *Clear*). Without it the placeholder chips silently hid carrier-less runs,
 which is how WePay runs went missing. Deselect it to hide them; that choice
 then sticks.
 
+**Freight types are no longer dropped.** CST used to discard
+`LESS_THAN_TRUCKLOAD` in `sourcing.excludeFreightTypes` on the grounds that the
+LTL team owns that freight. It did so *before the table ever saw the row*, which
+silently removed CST runs that genuinely needed sourcing and made them look
+absent from SMC. `excludeFreightTypes` is now empty and the toolbar has a
+**Freight** filter instead, so narrowing by type is a visible, reversible
+choice. Expect the CST list to be larger than before; if that overlaps work the
+LTL team is already doing, filter to `TRUCKLOAD` rather than re-adding the
+exclusion.
+
 A CST load also logs where the orders went: `SMC: N order(s) fetched → N row(s)
 by VRID → M kept for sourcing. Dropped: no VRID x, SMC carrier already set y,
 excluded freight type LESS_THAN_TRUCKLOAD z.` So "SMC had thousands and the list
@@ -173,6 +183,7 @@ FMC/SMC actually returned.
 | Records list | `LTL_Records` | `CST_Records` |
 | Shipper source of truth | – | `Source of Truth 2026.xlsx` on SharePoint (fallbacks: `source_of_truth_crawler.csv`, then the `CST_Shippers` list) |
 | Extra column | – | `shipper_group` (CST / CST - ELEX / CST - Mega Shipper) |
+| Freight types | LTL / TL / Intermodal | LTL / TL / Intermodal — none dropped; narrow with the toolbar's **Freight** filter |
 
 CST's scope is defined by its shipper source of truth, read **automatically from
 SharePoint**, in this order:

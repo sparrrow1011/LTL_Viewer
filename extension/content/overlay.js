@@ -501,6 +501,10 @@
     // Shipper group (teams with a shipper source-of-truth list only).
     const group = g("ltl-group");
     if (group) preds.push((r) => String(r.shipper_group ?? "") === group);
+    // Freight type. CST used to drop LESS_THAN_TRUCKLOAD before the table ever
+    // saw it; narrowing by type is a choice made here instead.
+    const freight = g("ltl-freight");
+    if (freight) preds.push((r) => String(r.freight_type ?? "") === freight);
 
     // Vehicle carrier: tag multi-select. If any are selected, keep rows whose
     // carrier is one of them (case-insensitive, trimmed).
@@ -2237,6 +2241,7 @@
     fill("ltl-status", "vehicle_execution_status", "All Statuses");
     fill("ltl-shipper", "shippername", "All Shippers");
     fill("ltl-group", "shipper_group", "All Groups");
+    fill("ltl-freight", "freight_type", "All Freight");
 
     // Team status default (e.g. CST → PLANNED): make sure it's an option even
     // before FMC enrichment has populated statuses, and apply it once per team.
@@ -2868,6 +2873,7 @@
         <select id="ltl-status"><option value="">All Statuses</option></select>
         <select id="ltl-shipper"><option value="">All Shippers</option></select>
         <select id="ltl-group" style="display:none"><option value="">All Groups</option></select>
+        <select id="ltl-freight" title="Freight type"><option value="">All Freight</option></select>
         <span id="ltl-carrier-mount"></span>
         <select id="ltl-f-ms" title="Manual sourced">
           <option value="">MS: Any</option>
@@ -3044,7 +3050,7 @@
     root.querySelector("#ltl-auto").addEventListener("change", (e) => setAuto(e.target.value));
     root.querySelector("#ltl-apply").addEventListener("click", fetchData);
     root.querySelector("#ltl-clear").addEventListener("click", () => {
-      ["ltl-search", "ltl-country", "ltl-status", "ltl-shipper", "ltl-group", "ltl-f-ms", "ltl-f-gen", "ltl-f-sent"].forEach((id) => {
+      ["ltl-search", "ltl-country", "ltl-status", "ltl-shipper", "ltl-group", "ltl-freight", "ltl-f-ms", "ltl-f-gen", "ltl-f-sent"].forEach((id) => {
         const n = root.querySelector(`#${id}`);
         if (n) n.value = "";
       });
@@ -3071,7 +3077,7 @@
     });
     // (Carrier multi-select re-renders locally via its own onChange callback.)
     // Status flag filters + shipper group re-render locally on change.
-    ["ltl-f-ms", "ltl-f-gen", "ltl-f-sent", "ltl-group"].forEach((id) => {
+    ["ltl-f-ms", "ltl-f-gen", "ltl-f-sent", "ltl-group", "ltl-freight"].forEach((id) => {
       root.querySelector(`#${id}`)?.addEventListener("change", applySearchAndRender);
     });
     root.querySelector("#ltl-refresh").addEventListener("click", fetchData);
@@ -3270,7 +3276,7 @@
       clearEmptyNotice();
       const search = root.querySelector("#ltl-search");
       if (search) search.value = "";
-      ["ltl-country", "ltl-status", "ltl-shipper", "ltl-group"].forEach((id) => {
+      ["ltl-country", "ltl-status", "ltl-shipper", "ltl-group", "ltl-freight"].forEach((id) => {
         const n = root.querySelector(`#${id}`);
         if (n) n.value = "";
       });

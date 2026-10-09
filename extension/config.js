@@ -208,7 +208,12 @@ export const Config = {
       sourcing: {
         requireVrid: true,
         requireNoCarrier: false,
-        excludeFreightTypes: ["LESS_THAN_TRUCKLOAD"],
+        // Previously ["LESS_THAN_TRUCKLOAD"], on the basis that the LTL team
+        // owns that freight. It silently removed CST runs that genuinely
+        // needed sourcing, so nothing is dropped here any more — use the
+        // toolbar's Freight filter to narrow by type instead, where the
+        // choice is visible and reversible.
+        excludeFreightTypes: [],
         placeholderCarriers: ["RLB1", "AZNG", "DUMMY"],
         placeholderCarrierPrefixes: [],
       },
