@@ -1007,6 +1007,11 @@
    * SMC for the toolbar window alone therefore misses those runs entirely. We
    * fetch origins from `days` earlier and re-narrow on the check-in afterwards.
    */
+  // Slack allowed when pre-filtering on SMC's stop times, before FMC has given
+  // us the authoritative run check-in. Covers FMC disagreeing with SMC by a few
+  // hours either side; FMC's own value still decides afterwards.
+  const PREFILTER_TOLERANCE_DAYS = 1;
+
   function lookbackWindow(win, days) {
     if (!days || !win.start) return win;
     const s = new Date(new Date(win.start).getTime() - days * 86400_000);
@@ -1083,6 +1088,44 @@
           (ft.length ? `, excluded freight type ${ft.map(([k, n]) => `${k} ${n}`).join(" / ")}` : "") +
           `.`
       );
+    }
+
+    // The lookback fetch covers ~15 days of origins, but we only care about
+    // runs checking in during the user's window — and FMC validation costs one
+    // request per VRID. Validating all ~6k would be slow enough that the FMC
+    // tab gets discarded mid-run ("Receiving end does not exist").
+    //
+    // So narrow first using SMC's OWN stop times. A run's check-in lands at one
+    // of the order's stops, so a row is a candidate if either its origin or its
+    // destination stop falls in the window (with a day of slack for FMC
+    // disagreeing slightly). FMC then confirms, and the authoritative re-narrow
+    // below still uses FMC's check-in.
+    if (lookbackDays) {
+      const tol = PREFILTER_TOLERANCE_DAYS * 86400_000;
+      const lo = Date.parse(uiWin.start) - tol;
+      const hi = Date.parse(uiWin.end) + tol;
+      const before = state.rows.length;
+      state.rows = state.rows.filter((r) => {
+        // All of the order's stops (smc_stop_times), falling back to origin and
+        // destination for rows from before that field existed.
+        const candidates = (r.smc_stop_times && r.smc_stop_times.length
+          ? r.smc_stop_times
+          : [r.smc_origin_time, r.dest_planned_yard_checkin_time]
+        )
+          .map((v) => Date.parse(v || ""))
+          .filter((t) => !Number.isNaN(t));
+        // No usable dates: keep it and let FMC decide, rather than guessing.
+        if (!candidates.length) return true;
+        // Keep if ANY stop is in range, and also if the window sits BETWEEN two
+        // stops — a long run can straddle the window with no stop inside it.
+        if (candidates.some((t) => t >= lo && t <= hi)) return true;
+        return Math.min(...candidates) <= lo && Math.max(...candidates) >= hi;
+      });
+      console.info(
+        `[LTL overlay] pre-filter on SMC stop times (±${PREFILTER_TOLERANCE_DAYS}d): ` +
+          `${before} → ${state.rows.length} candidate(s) for FMC validation`
+      );
+      smcRows = state.rows;
     }
 
     // Validate on FMC WHILE STILL LOADING (before showing the table).

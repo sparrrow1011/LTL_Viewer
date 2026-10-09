@@ -148,7 +148,14 @@ toolbar window alone therefore missed those runs completely — the row even
 on validation.
 
 So CST fetches origins from `smcOriginLookbackDays` (14) **before** the window
-start, then re-narrows on the check-in once FMC has supplied it, logging
+start. That fetch is large (~6,000 rows), and FMC validation costs a request
+per VRID, so the rows are **pre-filtered on SMC's own stop times** first —
+otherwise validation runs long enough that Firefox discards the FMC tab and the
+load dies with *Receiving end does not exist*. A row survives the pre-filter if
+any of the order's stops (`smc_stop_times`, every stop — a run's check-in can
+be at an intermediate one) falls in the window ±1 day, or if the window sits
+between two stops. Rows with no usable dates are kept. FMC then confirms, and
+the load re-narrows on the check-in once FMC has supplied it, logging
 `check-in window …: N → M rows`. Rows with no check-in time at all are kept
 rather than dropped. The cost is a bigger fetch (~15 days of orders), which is
 only affordable because of the page-size fix below.

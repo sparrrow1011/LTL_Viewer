@@ -105,13 +105,32 @@ async function bridge(message) {
  * @param {string[]} vrids
  * @returns {Promise<{ records: Record<string, object> }>}  keyed by vrid
  */
+// VRIDs per bridge message. One message for thousands of VRIDs keeps the FMC
+// tab busy long enough that Firefox may discard it, and the reply then fails
+// with "Receiving end does not exist" — losing every record already gathered.
+// Batching bounds each round-trip and lets the bridge be re-established
+// between them.
+const FMC_STATUS_BATCH = 250;
+
 export async function getFmcStatuses(vrids = []) {
   const clean = [...new Set(vrids.map((v) => String(v).trim()).filter(Boolean))];
   if (!clean.length) return { records: {} };
-  const resp = await bridge({ action: "fmc:req", vrids: clean });
-  const n = Object.keys(resp.records || {}).length;
-  log.info("fmc", `got ${n} records for ${clean.length} vrids`);
-  return { records: resp.records || {} };
+
+  const records = {};
+  for (let i = 0; i < clean.length; i += FMC_STATUS_BATCH) {
+    const batch = clean.slice(i, i + FMC_STATUS_BATCH);
+    const resp = await bridge({ action: "fmc:req", vrids: batch });
+    Object.assign(records, resp.records || {});
+    if (clean.length > FMC_STATUS_BATCH) {
+      log.info(
+        "fmc",
+        `batch ${i / FMC_STATUS_BATCH + 1}/${Math.ceil(clean.length / FMC_STATUS_BATCH)}: ` +
+          `${Object.keys(records).length} record(s) so far`
+      );
+    }
+  }
+  log.info("fmc", `got ${Object.keys(records).length} records for ${clean.length} vrids`);
+  return { records };
 }
 
 /**

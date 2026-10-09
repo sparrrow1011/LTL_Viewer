@@ -256,6 +256,11 @@
       // date SMC's originDateRange matches, so it's the only way to measure
       // origin → check-in transit and tell whether the lookback is deep enough.
       smc_origin_time: stop1.startTime,
+      // EVERY stop's planned time, not just first and last. A run's check-in
+      // lands at one of the order's stops, and on a multi-stop order that can
+      // be an intermediate one — so narrowing on first/last alone would drop
+      // runs whose middle leg is the one in the window.
+      smc_stop_times: stops.map((s) => s && s.startTime).filter(Boolean),
       dest_planned_yard_checkin_time: stop2.startTime,
       status: order.orderStatus,
       execution_status: order.executionStatus,
