@@ -139,6 +139,21 @@ The table leads with the FM/MM badge, the shipper account and the **CR ID**
 key). All three are stored on the SharePoint record and included in the
 Dashboard CSV, so the Dashboard can split by them.
 
+**Origin date vs. run check-in (why CST fetches a wider window).** SMC's
+`originDateRange` matches the **order's origin stop**. The team works by the
+**run's yard check-in**, and those are not the same date: a multi-leg order can
+be picked up on 06 Oct while its VRID runs on 09 Oct. Asking SMC for the
+toolbar window alone therefore missed those runs completely — the row even
+*looked* in-window in the table, because FMC's check-in time overwrites SMC's
+on validation.
+
+So CST fetches origins from `smcOriginLookbackDays` (14) **before** the window
+start, then re-narrows on the check-in once FMC has supplied it, logging
+`check-in window …: N → M rows`. Rows with no check-in time at all are kept
+rather than dropped. Raise the lookback if long-transit runs still go missing;
+the cost is a bigger fetch (~15 days of orders), which is only affordable
+because of the page-size fix below.
+
 **The SMC paging ceiling.** A fetch reads at most `PAGE_SIZE × MAX_PAGES`
 orders. That was 25 × 100 = **2,500**, which CST exceeds on a normal day, so
 orders past the cap were dropped and runs that needed sourcing never reached

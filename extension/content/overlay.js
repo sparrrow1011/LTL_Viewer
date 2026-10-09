@@ -998,6 +998,21 @@
     "equipment_type", "freight_type", "isa", "revenue", "revenue_currency",
   ];
 
+  /**
+   * Extend a window BACKWARDS only.
+   *
+   * SMC's `originDateRange` matches the ORDER's origin stop, but the team works
+   * by the RUN's yard check-in, and a run can check in days after its order was
+   * picked up (multi-leg orders: origin 06 Oct, the VRID runs 09 Oct). Asking
+   * SMC for the toolbar window alone therefore misses those runs entirely. We
+   * fetch origins from `days` earlier and re-narrow on the check-in afterwards.
+   */
+  function lookbackWindow(win, days) {
+    if (!days || !win.start) return win;
+    const s = new Date(new Date(win.start).getTime() - days * 86400_000);
+    return { start: s.toISOString().replace(/\.\d+Z$/, ".000Z"), end: win.end };
+  }
+
   function widenWindow(win, days) {
     const ms = days * 86400_000;
     const s = win.start ? new Date(new Date(win.start).getTime() - ms) : null;
@@ -1017,12 +1032,20 @@
 
   // ── CST: SMC is the source, FMC validates, carrier gate decides ───────────
   async function loadFromSmc() {
-    Loader.start("smc", "fetching the team's orders…");
+    // The window the USER asked for, which is about run check-in times...
+    const uiWin = dateWindow();
+    // ...and the (wider) window we ask SMC for, which is about ORDER origins.
+    const lookbackDays = Number(teamCfg.smcOriginLookbackDays) || 0;
+    const fetchWin = lookbackWindow(uiWin, lookbackDays);
+    Loader.start(
+      "smc",
+      lookbackDays ? `fetching orders, origins from ${lookbackDays}d earlier…` : "fetching the team's orders…"
+    );
     let smcRows;
     let smcMeta = null;
     try {
       // Through the background → SMC-tab bridge (this page can't fetch SMC).
-      ({ rows: smcRows, meta: smcMeta } = await msg("smcSourcingRows", { win: dateWindow(), opts: smcOptions() }));
+      ({ rows: smcRows, meta: smcMeta } = await msg("smcSourcingRows", { win: fetchWin, opts: smcOptions() }));
     } catch (e) {
       console.error("[LTL overlay] SMC fetch failed:", e);
       failStep("smc", e, ["SMC"]);
@@ -1078,6 +1101,30 @@
     }
     const validated = state.rows.filter((r) => r._fmc_validated).length;
     Loader.done("fmc", `${validated} of ${smcRows.length} found in FMC`);
+
+    // Now that FMC has supplied the real yard check-in, re-narrow to the window
+    // the user actually asked for. The fetch deliberately reached further back
+    // (origins), so without this the list would include runs from earlier days.
+    if (lookbackDays) {
+      const ws = Date.parse(uiWin.start);
+      const we = Date.parse(uiWin.end);
+      const before = state.rows.length;
+      let unknown = 0;
+      state.rows = state.rows.filter((r) => {
+        const t = Date.parse(r.orig_planned_yard_checkin_time || "");
+        // No check-in time at all: keep it. Dropping rows for missing data is
+        // how runs go invisible, which is the bug this whole path exists for.
+        if (Number.isNaN(t)) {
+          unknown += 1;
+          return true;
+        }
+        return t >= ws && t <= we;
+      });
+      console.info(
+        `[LTL overlay] check-in window ${uiWin.start} → ${uiWin.end}: ${before} → ${state.rows.length} rows` +
+          ` (fetched origins from ${lookbackDays}d earlier; kept ${unknown} with no check-in time)`
+      );
+    }
 
     // "Needs sourcing" is CONTROLLED BY FMC's vehicle_carrier: keep only rows
     // whose (now FMC-validated) carrier is empty or a placeholder.

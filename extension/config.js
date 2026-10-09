@@ -221,6 +221,14 @@ export const Config = {
       outcomeSweepDays: 30,
       retentionDays: 180,
       statusDefault: "PLANNED",
+      // SMC's originDateRange matches the ORDER's origin stop, but this team
+      // works by the RUN's yard check-in, and a multi-leg order can be picked
+      // up days before its VRID runs (origin 06 Oct, the run on 09 Oct). Asking
+      // SMC for the toolbar window alone silently missed those runs. So fetch
+      // origins from this many days earlier, then re-narrow on the check-in
+      // once FMC has supplied it. Raise it if long-transit runs still go
+      // missing; the cost is a bigger SMC fetch.
+      smcOriginLookbackDays: 14,
       // Programme shipper accounts whose rows all carry the same placeholder
       // name. For these, resolve the real vendor from the order's VENDOR_CODE
       // via the Procurement Portal and show that instead, tagged `tag`.
